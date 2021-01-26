@@ -93,7 +93,7 @@ namespace argo {
 			return r;
 		}
 
-		void map_memory(void* addr, std::size_t size, std::size_t offset, int prot) {
+		void map_memory(void* addr, std::size_t size, std::size_t offset, int prot, int smem) {
 			/**@todo move pagesize 4096 to hw module */
 			int err = remap_file_pages(addr, size, 0, (file_offset + offset)/4096, 0);
 			if(err) {
