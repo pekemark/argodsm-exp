@@ -80,6 +80,15 @@ namespace argo {
 		 */
 		std::size_t global_size();
 
+		/**
+		 * @brief Check if a an address is cached or node local
+		 * @param addr the address to verify cache status on
+		 * @return True if the page is either cached on the node
+		 * or locally backed on the node, otherwise false.
+		 * @warning THIS IS FOR TESTING, DO NOT USE
+		 * @todo THIS SHOULD BE BAKED IN TO A CACHE CLASS
+		 */
+		bool is_cached(void* addr);
 
 		/**
 		 * @brief global memory space address
@@ -213,7 +222,8 @@ namespace argo {
 			/**
 			 * @brief Backend internal type erased atomic store function
 			 * @param desired Pointer to the object that holds the desired value
-			 * @param size == sizeof(*desired)
+			 * @param count Number of elements from desired to store
+			 * @param size Size of each element in desired
 			 * @param rank Rank of target window to which operation will be performed
 			 * @param disp Displacement from start of window to beginning of target buffer
 			 * @sa store to public window section
@@ -222,11 +232,13 @@ namespace argo {
 			 * @warning For internal use only - DO NOT USE UNLESS YOU KNOW WHAT YOU ARE DOING
 			 */
 			void _store_public_owners_dir(const void* desired,
-				const std::size_t size, const std::size_t rank, const std::size_t disp);
+				const std::size_t size, const std::size_t count,
+				const std::size_t rank, const std::size_t disp);
 
 			/**
 			 * @brief Backend internal type erased atomic store function
 			 * @param desired The desired value to be stored
+			 * @param count Number of elements from desired to store
 			 * @param rank Rank of target window to which operation will be performed
 			 * @param disp Displacement from start of window to beginning of target buffer
 			 * @sa store to private window section
@@ -235,7 +247,7 @@ namespace argo {
 			 * @warning For internal use only - DO NOT USE UNLESS YOU KNOW WHAT YOU ARE DOING
 			 */
 			void _store_local_owners_dir(const std::size_t* desired,
-				const std::size_t rank, const std::size_t disp);
+				const std::size_t count, const std::size_t rank, const std::size_t disp);
 
 			/**
 			 * @brief Backend internal type erased atomic store function
@@ -264,7 +276,8 @@ namespace argo {
 			/**
 			 * @brief Backend internal type erased atomic load function
 			 * @param output_buffer Pointer to the memory location where the value of the object should be stored
-			 * @param size == sizeof(*output_buffer)
+			 * @param size Size of an element to load
+			 * @param count Number of elements to load
 			 * @param rank Rank of target window to which operation will be performed
 			 * @param disp Displacement from start of window to beginning of target buffer
 			 * @sa load from public window section
@@ -273,11 +286,13 @@ namespace argo {
 			 * @warning For internal use only - DO NOT USE UNLESS YOU KNOW WHAT YOU ARE DOING
 			 */
 			void _load_public_owners_dir(void* output_buffer,
-				const std::size_t size, const std::size_t rank, const std::size_t disp);
+				const std::size_t size, const std::size_t count,
+				const std::size_t rank, const std::size_t disp);
 
 			/**
 			 * @brief Backend internal type erased atomic load function
 			 * @param output_buffer Pointer to the memory location where the value of the object should be stored
+			 * @param count Number of elements to load
 			 * @param rank Rank of target window to which operation will be performed
 			 * @param disp Displacement from start of window to beginning of target buffer
 			 * @sa load from private window section
@@ -286,7 +301,7 @@ namespace argo {
 			 * @warning For internal use only - DO NOT USE UNLESS YOU KNOW WHAT YOU ARE DOING
 			 */
 			void _load_local_owners_dir(void* output_buffer,
-				const std::size_t rank, const std::size_t disp);
+				const std::size_t count, const std::size_t rank, const std::size_t disp);
 				
 			/**
 			 * @brief Backend internal type erased atomic load function

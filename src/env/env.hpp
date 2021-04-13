@@ -40,6 +40,11 @@
  * @envvar{ARGO_ALLOCATION_BLOCK_SIZE} request a specific allocation block size in number of pages
  * @details This environment variable can be accessed through
  *          @ref argo::env::allocation_block_size() after argo::env::init() has been called.
+ *
+ * @envvar{ARGO_LOAD_SIZE} request a specific load size in number of pages
+ * @details This environment variable determines the maximum amount of DSM pages that
+ * 			are fetched on each remote load operation. It can be accessed through
+ *          @ref argo::env::load_size() after argo::env::init() has been called.
  */
 
 namespace argo {
@@ -97,6 +102,14 @@ namespace argo {
 		 * @see @ref ARGO_ALLOCATION_BLOCK_SIZE
 		 */
 		std::size_t allocation_block_size();
+
+		/**
+		 * @brief get the number of pages fetched remotely per load requested
+		 * by environment variable
+		 * @return the number of pages
+		 * @see @ref ARGO_LOAD_SIZE
+		 */
+		std::size_t load_size();
 	} // namespace env
 } // namespace argo
 

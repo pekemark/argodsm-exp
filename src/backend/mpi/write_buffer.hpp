@@ -130,7 +130,7 @@ class write_buffer
 		void sort() {
 			std::sort(_buffer.begin(), _buffer.end(),
 					[](const T& l, const T& r) {
-				return getHomenode(cacheControl[l].tag) < getHomenode(cacheControl[r].tag);
+				return get_homenode(cacheControl[l].tag) < get_homenode(cacheControl[r].tag);
 			});
 		}
 
@@ -141,7 +141,7 @@ class write_buffer
 			assert(_buffer.size() >= _write_back_size);
 			std::sort(_buffer.begin(), _buffer.begin()+_write_back_size,
 					[](const T& l, const T& r) {
-				return getHomenode(cacheControl[l].tag) < getHomenode(cacheControl[r].tag);
+				return get_homenode(cacheControl[l].tag) < get_homenode(cacheControl[r].tag);
 			});
 		}
 

@@ -51,6 +51,12 @@ namespace {
 	const std::size_t default_allocation_block_size = 1ul<<4; // default: 16
 
 	/**
+	 * @brief default requested load size (if environment variable is unset)
+	 * @see @ref ARGO_LOAD_SIZE
+	 */
+	const std::size_t default_load_size = 8;
+
+	/**
 	 * @brief environment variable used for requesting memory size
 	 * @see @ref ARGO_MEMORY_SIZE
 	 */
@@ -85,6 +91,12 @@ namespace {
 	 * @see @ref ARGO_ALLOCATION_BLOCK_SIZE
 	 */
 	const std::string env_allocation_block_size = "ARGO_ALLOCATION_BLOCK_SIZE";
+
+	/**
+	 * @brief environment variable used for requesting load size
+	 * @see @ref ARGO_LOAD_SIZE
+	 */
+	const std::string env_load_size = "ARGO_LOAD_SIZE";
 
 	/** @brief error message string */
 	const std::string msg_uninitialized = "argo::env::init() must be called before accessing environment values";
@@ -123,6 +135,11 @@ namespace {
 	 * @brief allocation block size requested through the environment variable @ref ARGO_ALLOCATION_BLOCK_SIZE
 	 */
 	std::size_t value_allocation_block_size;
+
+	/**
+	 * @brief load size requested through the environment variable @ref ARGO_LOAD_SIZE
+	 */
+	std::size_t value_load_size;
 
 	/** @brief flag to allow checking that environment variables have been read before accessing their values */
 	bool is_initialized = false;
@@ -181,6 +198,7 @@ namespace argo {
 
 			value_allocation_policy = parse_env(env_allocation_policy, default_allocation_policy).second;
 			value_allocation_block_size = parse_env(env_allocation_block_size, default_allocation_block_size).second;
+			value_load_size = parse_env(env_load_size, default_load_size).second;
 
 			is_initialized = true;
 		}
@@ -215,5 +233,9 @@ namespace argo {
 			return value_allocation_block_size;
 		}
 
+		std::size_t load_size() {
+			assert_initialized();
+			return value_load_size;
+		}
 	} // namespace env
 } // namespace argo

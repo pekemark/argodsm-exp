@@ -15,6 +15,13 @@
 
 namespace argo {
 	namespace data_distribution {
+
+		/** @brief This constant is used to represent an invalid node id */
+		constexpr argo::node_id_t invalid_node_id = -1;
+
+		/** @brief This constant is used to represent an invalid offset */
+		constexpr std::size_t invalid_offset = SIZE_MAX;
+
 		/** @brief page size for the implementations */
 		static constexpr std::size_t granularity = 0x1000UL;
 
@@ -68,17 +75,46 @@ namespace argo {
 				 */
 				virtual node_id_t homenode (char* const ptr) {
 					(void)ptr;
-					return -1;
+					return invalid_node_id;
 				}
 
 				/**
-				 * @brief compute offset into the home node's share of the memory
+				 * @brief compute home node of an address
+				 * @param ptr address to find homenode of
+				 * @return the computed home node, or ::invalid_node_id if
+				 * ptr has not yet been first-touched
+				 * @note this version shall not perform first-touch on an
+				 * address that has not yet been first touched
+				 */
+				virtual node_id_t peek_homenode (char* const ptr) {
+					(void)ptr;
+					return invalid_node_id;
+				}
+
+				/**
+				 * @brief compute the offset of ptr in the backing store
+				 * on ptr's homenode
 				 * @param ptr address to find offset of
-				 * @return the computed offset
+				 * @return the backing store offset
 				 */
 				virtual std::size_t local_offset (char* const ptr) {
 					(void)ptr;
-					return 0;
+					return invalid_offset;
+				}
+
+				/**
+				 * @brief compute the offset of ptr in the backing store
+				 * on ptr's homenode
+				 * @param ptr address to find offset of
+				 * does not have a valid offset
+				 * @return the backing store offset, or ::invalid_offset if
+				 * ptr has not yet been first-touched
+				 * @note this version shall not perform first-touch on an
+				 * address that has not yet been first touched
+				 */
+				virtual std::size_t peek_local_offset (char* const ptr) {
+					(void)ptr;
+					return invalid_offset;
 				}
 
 				/**

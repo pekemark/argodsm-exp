@@ -120,6 +120,11 @@ namespace argo {
 			return memory_size;
 		}
 
+		bool is_cached(void* addr) {
+			(void)addr;
+			return true;
+		}
+
 		void finalize() {
 		}
 
@@ -194,16 +199,20 @@ namespace argo {
 			}
 
 			void _store_public_owners_dir(const void* desired,
-					const std::size_t size, const std::size_t rank, const std::size_t disp) {
+					const std::size_t size, const std::size_t count,
+					const std::size_t rank, const std::size_t disp) {
 				(void)desired;
 				(void)size;
+				(void)count;
 				(void)rank;
 				(void)disp;
 			}
 
 			void _store_local_owners_dir(const std::size_t* desired,
-					const std::size_t rank, const std::size_t disp) {
+					const std::size_t count, const std::size_t rank,
+					const std::size_t disp) {
 				(void)desired;
+				(void)count;
 				(void)rank;
 				(void)disp;
 			}
@@ -222,9 +231,11 @@ namespace argo {
 			}
 
 			void _load_public_owners_dir(void* output_buffer,
-					const std::size_t size, const std::size_t rank, const std::size_t disp) {
+					const std::size_t size, const std::size_t count,
+					const std::size_t rank, const std::size_t disp) {
 				(void)output_buffer;
 				(void)size;
+				(void)count;
 				(void)rank;
 				(void)disp;
 			}
@@ -234,9 +245,12 @@ namespace argo {
 			 *       directory, since the values are hardcoded in the init call
 			 */
 			void _load_local_owners_dir(void* output_buffer,
-					const std::size_t rank, const std::size_t disp) {
+					const std::size_t count, const std::size_t rank,
+					const std::size_t disp) {
 				(void)rank;
-				*(static_cast<std::size_t*>(output_buffer)) = global_owners_dir[disp];
+				std::copy(&global_owners_dir[disp],
+						&global_owners_dir[disp+count],
+						static_cast<std::size_t*>(output_buffer));
 			}
 
 			void _load_local_offsets_tbl(void* output_buffer,

@@ -33,6 +33,7 @@
 #include <unistd.h>
 
 #include "argo.h"
+
 /** @brief Granularity of coherence unit / pagesize  */
 #define GRAN 4096L //page size.
 
@@ -56,9 +57,6 @@
 
 /** @brief Hack to avoid warnings when you have unused variables in a function */
 #define UNUSED_PARAM(x) (void)(x)
-
-/** @brief 1 for activating two memory requests in parallel, 0 for disabling*/
-#define DUAL_LOAD 1
 
 /** @brief Wrapper for unsigned char - basically a byte */
 typedef unsigned char argo_byte;
@@ -228,13 +226,13 @@ void argo_reset_coherence(int n);
  * @deprecated Should use argo_get_nid() instead and eventually remove this
  * @see argo_get_nid()
  */
-unsigned int getID();
+argo::node_id_t getID();
 
 /**
  * @brief Gives the ArgoDSM node id for the local process
  * @return Returns the ArgoDSM node id for the local process
  */
-unsigned int argo_get_nid();
+argo::node_id_t argo_get_nid();
 
 /**
  * @brief Gives number of ArgoDSM nodes
@@ -312,22 +310,47 @@ unsigned long getCacheIndex(unsigned long addr);
 /**
  * @brief Gives homenode for a given address
  * @param addr Address in the global address space
- * @param cloc Used to identify the call location in the code
  * @return Process ID of the node backing the memory containing addr
  */
-unsigned long getHomenode(unsigned long addr, char cloc = 0);
+argo::node_id_t get_homenode(std::size_t addr);
+/**
+ * @brief Gives homenode for a given address
+ * @param addr Address in the global address space
+ * @return Process ID of the node backing the memory containing addr,
+ * or argo::data_distribution::invalid_node_id if addr has not been first-touched
+ * @note This version does not invoke a first-touch call if an
+ * address has not been first-touched
+ */
+argo::node_id_t peek_homenode(std::size_t addr);
 /**
  * @brief Gets the offset of an address on the local nodes part of the global memory
  * @param addr Address in the global address space
- * @param cloc Used to identify the call location in the code
  * @return addr-(start address of local process part of global memory)
  */
-unsigned long getOffset(unsigned long addr, char cloc = 0);
+std::size_t get_offset(std::size_t addr);
+/**
+ * @brief Gets the offset of an address on the local nodes part of the global memory
+ * @param addr Address in the global address space
+ * @return addr-(start address of local process part of global memory),
+ * or argo::data_distribution::invalid_offset if addr has not been first-touched yet
+ * @note This version does not invoke a first-touch call if an
+ * address has not been first-touched
+ */
+std::size_t peek_offset(std::size_t addr);
 /**
  * @brief Gives an index to the sharer/writer vector depending on the address
  * @param addr Address in the global address space
  * @return index for sharer vector for the page
  */
 unsigned long get_classification_index(uint64_t addr);
+/**
+ * @brief Check whether a page is either cached on the node or
+ * locally backed.
+ * @param addr Address in the global address space
+ * @return true if cached or locally backed, else false
+ * @warning This is strictly meant for testing prefetching
+ * @todo This should be moved in to a dedicated cache class
+ */
+bool _is_cached(std::size_t addr);
 #endif /* argo_swdsm_h */
 

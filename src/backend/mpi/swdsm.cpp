@@ -4,6 +4,7 @@
  * @copyright Eta Scale AB. Licensed under the Eta Scale Open Source License. See the LICENSE file for details.
  */
 #include<cstddef>
+#include<vector>
 
 #include "env/env.hpp"
 #include "signal/signal.hpp"
@@ -17,13 +18,6 @@ namespace vm = argo::virtual_memory;
 namespace sig = argo::signal;
 namespace env = argo::env;
 
-/*Threads*/
-/** @brief Thread loads data into cache */
-pthread_t loadthread1;
-/** @brief Thread loads data into cache with an overlapping request (some parts are done in parallel) */
-pthread_t loadthread2;
-/** @brief Thread writes data remotely if parts of writebuffer */
-pthread_t writethread;
 /** @brief For matching threads to more sensible thread IDs */
 pthread_t tid[NUM_THREADS] = {0};
 
@@ -37,6 +31,8 @@ pthread_barrier_t *threadbarrier;
 /*Pagecache*/
 /** @brief  Size of the cache in number of pages*/
 unsigned long cachesize;
+/** @brief  The maximum number of pages load_cache_entry will fetch remotely */
+std::size_t load_size;
 /** @brief  Offset off the cache in the backing file*/
 unsigned long cacheoffset;
 /** @brief  Keeps state, tag and dirty bit of the cache*/
@@ -92,18 +88,10 @@ sem_t ibsem;
 /*Loading and Prefetching*/
 /**
  * @brief load into cache helper function
- * @param tag aligned address to load into the cache
- * @param line cache entry index to use
+ * @param aligned_access_offset memory offset to load into the cache
+ * @pre aligned_access_offset must be aligned as CACHELINE*pagesize
  */
-void load_cache_entry(unsigned long tag, unsigned long line);
-
-/**
- * @brief prefetch into cache helper function, which duplicates a lot of code
- * @param tag aligned address to prefetch into the cache
- * @param line cache entry index to use
- * @todo this function duplicates a lot of code from load_cache_entry(), this should be fixed
- */
-void prefetch_cache_entry(unsigned long tag, unsigned long line);
+void load_cache_entry(std::size_t aligned_access_offset);
 
 /*Global lock*/
 /** @brief  Local flags we spin on for the global lock*/
@@ -252,7 +240,6 @@ void handler(int sig, siginfo_t *si, void *unused){
 	UNUSED_PARAM(sig);
 	UNUSED_PARAM(unused);
 	double t1 = MPI_Wtime();
-
 	unsigned long tag;
 	argo_byte owner,state;
 	/* compute offset in distributed memory in bytes, always positive */
@@ -265,8 +252,21 @@ void handler(int sig, siginfo_t *si, void *unused){
 	/* compute start pointer of cacheline. char* has byte-wise arithmetics */
 	char* const aligned_access_ptr = static_cast<char*>(startAddr) + aligned_access_offset;
 	unsigned long startIndex = getCacheIndex(aligned_access_offset);
-	unsigned long homenode = getHomenode(aligned_access_offset, env::allocation_policy());
-	unsigned long offset = getOffset(aligned_access_offset, env::allocation_policy());
+
+	/* Get homenode and offset, protect with ibsem if first touch */
+	argo::node_id_t homenode;
+	std::size_t offset;
+	if(dd::is_first_touch_policy()){
+		std::lock_guard<std::mutex> lock(spin_mutex);
+		sem_wait(&ibsem);
+		homenode = get_homenode(aligned_access_offset);
+		offset = get_offset(aligned_access_offset);
+		sem_post(&ibsem);
+	}else{
+		homenode = get_homenode(aligned_access_offset);
+		offset = get_offset(aligned_access_offset);
+	}
+
 	unsigned long id = 1 << getID();
 	unsigned long invid = ~id;
 
@@ -354,10 +354,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 	tag = cacheControl[startIndex].tag;
 
 	if(state == INVALID || (tag != aligned_access_offset && tag != GLOBAL_NULL)) {
-		load_cache_entry(aligned_access_offset, (startIndex%cachesize));
-#if DUAL_LOAD == 1
-		prefetch_cache_entry((aligned_access_offset+CACHELINE*pagesize), ((startIndex+CACHELINE)%cachesize));
-#endif
+		load_cache_entry(aligned_access_offset);
 		pthread_mutex_unlock(&cachemutex);
 		double t2 = MPI_Wtime();
 		stats.loadtime+=t2-t1;
@@ -436,314 +433,265 @@ void handler(int sig, siginfo_t *si, void *unused){
 }
 
 
-unsigned long getHomenode(unsigned long addr, char cloc){
-	std::size_t homenode;
-	if (cloc == dd::memory_policy::first_touch) {
-		std::lock_guard<std::mutex> lock(spin_mutex);
-		sem_wait(&ibsem);
-		dd::global_ptr<char> gptr(reinterpret_cast<char*>(
-				addr + reinterpret_cast<unsigned long>(startAddr)), __func__);
-		homenode = gptr.node();
-		sem_post(&ibsem);
-	} else {
-		dd::global_ptr<char> gptr(reinterpret_cast<char*>(
-				addr + reinterpret_cast<unsigned long>(startAddr)), __func__);
-		homenode = gptr.node();
-	}
-	return homenode;
+argo::node_id_t get_homenode(std::size_t addr){
+	dd::global_ptr<char> gptr(reinterpret_cast<char*>(
+			addr + reinterpret_cast<unsigned long>(startAddr)), true, false);
+	return gptr.node();
 }
 
-unsigned long getOffset(unsigned long addr, char cloc){
-	std::size_t offset;
-	if (cloc == dd::memory_policy::first_touch) {
-		std::lock_guard<std::mutex> lock(spin_mutex);
-		sem_wait(&ibsem);
-		dd::global_ptr<char> gptr(reinterpret_cast<char*>(
-				addr + reinterpret_cast<unsigned long>(startAddr)), __func__);
-		offset = gptr.offset();
-		sem_post(&ibsem);
-	} else {
-		dd::global_ptr<char> gptr(reinterpret_cast<char*>(
-				addr + reinterpret_cast<unsigned long>(startAddr)), __func__);
-		offset = gptr.offset();
-	}
-	return offset;
+argo::node_id_t peek_homenode(std::size_t addr) {
+	dd::global_ptr<char> gptr(reinterpret_cast<char*>(
+			addr + reinterpret_cast<unsigned long>(startAddr)), false, false);
+	return gptr.peek_node();
 }
 
-void load_cache_entry(unsigned long loadtag, unsigned long loadline) {
-	int i;
-	unsigned long homenode;
-	unsigned long id = 1 << getID();
-	unsigned long invid = ~id;
+std::size_t get_offset(std::size_t addr){
+	dd::global_ptr<char> gptr(reinterpret_cast<char*>(
+			addr + reinterpret_cast<unsigned long>(startAddr)), false, true);
+	return gptr.offset();
+}
 
-	if(loadtag>=size_of_all){//Trying to access/prefetch out of memory
+std::size_t peek_offset(std::size_t addr) {
+	dd::global_ptr<char> gptr(reinterpret_cast<char*>(
+			addr + reinterpret_cast<unsigned long>(startAddr)), false, false);
+	return gptr.peek_offset();
+}
+
+void load_cache_entry(std::size_t aligned_access_offset) {
+
+	/* If it's not an ArgoDSM address, do not handle it */
+	if(aligned_access_offset >= size_of_all){
 		return;
 	}
-	homenode = getHomenode(loadtag);
-	unsigned long cacheIndex = loadline;
-	if(cacheIndex >= cachesize){
-		printf("idx > size   cacheIndex:%ld cachesize:%ld\n",cacheIndex,cachesize);
-		return;
-	}
+
+	const std::size_t block_size = pagesize*CACHELINE;
+	/* Check that the precondition holds true */
+	assert((aligned_access_offset % block_size) == 0);
+
+	/* Assign node bit IDs */
+	const std::uintptr_t node_id_bit = 1 << getID();
+	const std::uintptr_t node_id_inv_bit = ~node_id_bit;
+
+	/* Calculate start values and store some parameters */
+	const std::size_t cache_index = getCacheIndex(aligned_access_offset);
+	const std::size_t start_index = align_backwards(cache_index, CACHELINE);
+	std::size_t end_index = start_index+CACHELINE;
+	const argo::node_id_t load_node = get_homenode(aligned_access_offset);
+	const std::size_t load_offset = get_offset(aligned_access_offset);
+
 	sem_wait(&ibsem);
 
-
-	unsigned long pageAddr = loadtag;
-	unsigned long blocksize = pagesize*CACHELINE;
-	unsigned long lineAddr = pageAddr/blocksize;
-	lineAddr *= blocksize;
-
-	unsigned long startidx = cacheIndex/CACHELINE;
-	startidx*=CACHELINE;
-	unsigned long end = startidx+CACHELINE;
-
-	if(end>=cachesize){
-		end = cachesize;
-	}
-
-	argo_byte tmpstate = cacheControl[startidx].state;
-	unsigned long tmptag = cacheControl[startidx].tag;
-
-	if(tmptag == lineAddr && tmpstate != INVALID){
+	/* Return if requested cache entry is already up to date. */
+	if(cacheControl[start_index].tag == aligned_access_offset &&
+			cacheControl[start_index].state != INVALID){
 		sem_post(&ibsem);
 		return;
 	}
 
-
-	void * lineptr = (char*)startAddr + lineAddr;
-
-	if(cacheControl[startidx].tag  != lineAddr){
-		if(cacheControl[startidx].tag  != lineAddr){
-
-			void * tmpptr2 = (char*)startAddr + cacheControl[startidx].tag;
-			if(cacheControl[startidx].tag != GLOBAL_NULL && cacheControl[startidx].tag  != lineAddr){
-				argo_byte dirty = cacheControl[startidx].dirty;
-				if(dirty == DIRTY){
-					mprotect(tmpptr2,blocksize,PROT_READ);
-					int j;
-					for(j=0; j < CACHELINE; j++){
-						storepageDIFF(startidx+j,pagesize*j+(cacheControl[startidx].tag));
-					}
-					argo_write_buffer->erase(startidx);
-				}
-
-				for(i = 0; i < numtasks; i++){
-					if(barwindowsused[i] == 1){
-						MPI_Win_unlock(i, globalDataWindow[i]);
-						barwindowsused[i] = 0;
-					}
-				}
-
-				cacheControl[startidx].state = INVALID;
-				cacheControl[startidx].tag = lineAddr;
-
-				cacheControl[startidx].dirty=CLEAN;
-				vm::map_memory(lineptr, blocksize, pagesize*startidx, PROT_NONE);
-				mprotect(tmpptr2,blocksize,PROT_NONE);
-			}
-		}
-	}
-
-
-
-	stats.loads++;
-	unsigned long classidx = get_classification_index(lineAddr);
-	unsigned long tempsharer = 0;
-	unsigned long tempwriter = 0;
-
-	MPI_Win_lock(MPI_LOCK_SHARED, workrank, 0, sharerWindow);
-	unsigned long prevsharer = (globalSharers[classidx])&id;
-	MPI_Win_unlock(workrank, sharerWindow);
-	int n;
-	homenode = getHomenode(lineAddr);
-
-	if(prevsharer==0 ){ //if there is strictly less than two 'stable' sharers
-		MPI_Win_lock(MPI_LOCK_SHARED, homenode, 0, sharerWindow);
-		MPI_Get_accumulate(&id, 1, MPI_LONG, &tempsharer, 1, MPI_LONG,
-			homenode, classidx, 1, MPI_LONG, MPI_BOR, sharerWindow);
-		MPI_Get(&tempwriter, 1,MPI_LONG,homenode,classidx+1,1,MPI_LONG,sharerWindow);
-		MPI_Win_unlock(homenode, sharerWindow);
-	}
-
-	MPI_Win_lock(MPI_LOCK_EXCLUSIVE, workrank, 0, sharerWindow);
-	globalSharers[classidx] |= tempsharer;
-	globalSharers[classidx+1] |= tempwriter;
-	MPI_Win_unlock(workrank, sharerWindow);
-
-	unsigned long offset = getOffset(lineAddr);
-	if(isPowerOf2((tempsharer)&invid) && tempsharer != id && prevsharer == 0){ //Other private. but may not have loaded page yet.
-		unsigned long ownid = tempsharer&invid; // remove own bit
-		unsigned long owner = invalid_node; // initialize to failsafe value
-		for(n=0; n<numtasks; n++) {
-			if(1ul<<n==ownid) {
-				owner = n; //just get rank...
+	/* Adjust end_index to ensure the whole chunk to fetch is on the same node */
+	for(std::size_t i = start_index+CACHELINE, p = CACHELINE;
+					i < start_index+load_size;
+					i+=CACHELINE, p+=CACHELINE){
+		const std::size_t temp_addr = aligned_access_offset + p*block_size;
+		/* Increase end_index if it is within bounds and on the same node */
+		if(temp_addr < size_of_all && i < cachesize){
+			const argo::node_id_t temp_node = peek_homenode(temp_addr);
+			const std::size_t temp_offset = peek_offset(temp_addr);
+			if(temp_node == load_node && temp_offset == (load_offset + p*block_size)){
+				end_index+=CACHELINE;
+			}else{
 				break;
 			}
+		}else{
+			/* Stop when either condition is not satisfied */
+			break;
 		}
-		if(owner != invalid_node) {
-			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, owner, 0, sharerWindow);
-			MPI_Accumulate(&id, 1, MPI_LONG, owner, classidx, 1, MPI_LONG, MPI_BOR, sharerWindow);
-			MPI_Win_unlock(owner, sharerWindow);
+	}
+
+	bool new_sharer = false;
+	const std::size_t fetch_size = end_index - start_index;
+	const std::size_t classification_size = fetch_size*2;
+
+	/* For each page to load, true if page should be cached else false */
+	std::vector<bool> pages_to_load(fetch_size);
+	/* For each page to update in the cache, true if page has
+	 * already been handled else false */
+	std::vector<bool> handled_pages(fetch_size);
+	/* Contains classification index for each page to load */
+	std::vector<std::size_t> classification_index_array(fetch_size);
+	/* Store sharer state from local node temporarily */
+	std::vector<std::uintptr_t> local_sharers(fetch_size);
+	/* Store content of remote Pyxis directory temporarily */
+	std::vector<std::uintptr_t> remote_sharers(classification_size);
+	/* Store updates to be made to remote Pyxis directory */
+	std::vector<std::uintptr_t> sharer_bit_mask(classification_size);
+	/* Temporarily store remotely fetched cache data */
+	std::vector<char> temp_data(fetch_size*pagesize);
+
+	/* Write back existing cache entries if needed */
+	for(std::size_t idx = start_index, p = 0; idx < end_index; idx+=CACHELINE, p+=CACHELINE){
+		/* Address and pointer to the data being loaded */
+		const std::size_t temp_addr = aligned_access_offset + p*block_size;
+
+		/* Skip updating pages that are already present and valid in the cache */
+		if(cacheControl[idx].tag == temp_addr && cacheControl[idx].state != INVALID){
+			pages_to_load[p] = false;
+			continue;
+		}else{
+			pages_to_load[p] = true;
 		}
 
+		/* If another page occupies the cache index, begin to evict it. */
+		if((cacheControl[idx].tag != temp_addr) && (cacheControl[idx].tag != GLOBAL_NULL)){
+			void* old_ptr = static_cast<char*>(startAddr) + cacheControl[idx].tag;
+			void* temp_ptr = static_cast<char*>(startAddr) + temp_addr;
+
+			/* If the page is dirty, write it back */
+			if(cacheControl[idx].dirty == DIRTY){
+				mprotect(old_ptr,block_size,PROT_READ);
+				for(std::size_t j=0; j < CACHELINE; j++){
+					storepageDIFF(idx+j,pagesize*j+(cacheControl[idx].tag));
+				}
+				argo_write_buffer->erase(idx);
+			}
+			/* Ensure the writeback has finished */
+			for(int i = 0; i < numtasks; i++){
+				if(barwindowsused[i] == 1){
+					MPI_Win_unlock(i, globalDataWindow[i]);
+					barwindowsused[i] = 0;
+				}
+			}
+
+			/* Clean up cache and protect memory */
+			cacheControl[idx].state = INVALID;
+			cacheControl[idx].tag = temp_addr;
+			cacheControl[idx].dirty = CLEAN;
+			vm::map_memory(temp_ptr, block_size, pagesize*idx, PROT_NONE);
+			mprotect(old_ptr,block_size,PROT_NONE);
+		}
 	}
 
-	MPI_Win_lock(MPI_LOCK_SHARED, homenode , 0, globalDataWindow[homenode]);
-	MPI_Get(&cacheData[startidx*pagesize],
-					1,
-					cacheblock,
-					homenode,
-					offset, 1,cacheblock,globalDataWindow[homenode]);
-	MPI_Win_unlock(homenode, globalDataWindow[homenode]);
-
-	if(cacheControl[startidx].tag == GLOBAL_NULL){
-		vm::map_memory(lineptr, blocksize, pagesize*startidx, PROT_READ);
-		cacheControl[startidx].tag = lineAddr;
+	/* Initialize classification_index_array */
+	for(std::size_t i = 0; i < fetch_size; i+=CACHELINE){
+		const std::size_t temp_addr = aligned_access_offset + i*block_size;
+		classification_index_array[i] = get_classification_index(temp_addr);
 	}
-	else{
-		mprotect(lineptr,pagesize*CACHELINE,PROT_READ);
-	}
-	touchedcache[startidx] = 1;
-	cacheControl[startidx].state = VALID;
 
-	cacheControl[startidx].dirty=CLEAN;
+	/* Increase stat counter as load will be performed */
+	stats.loads++;
+
+	/* Get globalSharers info from local node and add self to it */
+	MPI_Win_lock(MPI_LOCK_SHARED, workrank, 0, sharerWindow);
+	for(std::size_t i = 0; i < fetch_size; i+=CACHELINE){
+		if(pages_to_load[i]){
+			/* Check local pyxis directory if we are sharer of the page */
+			local_sharers[i] = (globalSharers[classification_index_array[i]])&node_id_bit;
+			if(local_sharers[i] == 0){
+				sharer_bit_mask[i*2] = node_id_bit;
+				new_sharer = true; //At least one new sharer detected
+			}
+		}
+	}
+	MPI_Win_unlock(workrank, sharerWindow);
+
+	/* If this node is a new sharer of at least one of the pages */
+	if(new_sharer){
+		/* Register this node as sharer of all newly shared pages in the load_node's
+		 * globalSharers directory using one MPI call. When this call returns,
+		 * remote_sharers contains remote globalSharers directory values prior to
+		 * this call. */
+		MPI_Win_lock(MPI_LOCK_SHARED, load_node, 0, sharerWindow);
+		MPI_Get_accumulate(sharer_bit_mask.data(), classification_size, MPI_LONG,
+				remote_sharers.data(), classification_size, MPI_LONG,
+				load_node, classification_index_array[0], classification_size,
+				MPI_LONG, MPI_BOR, sharerWindow);
+		MPI_Win_unlock(load_node, sharerWindow);
+	}
+
+	/* Register the received remote globalSharers information locally */
+	MPI_Win_lock(MPI_LOCK_EXCLUSIVE, workrank, 0, sharerWindow);
+	for(std::size_t i = 0; i < fetch_size; i+=CACHELINE){
+		if(pages_to_load[i]){
+			globalSharers[classification_index_array[i]] |= remote_sharers[i*2];
+			globalSharers[classification_index_array[i]] |= node_id_bit; //Also add self
+			globalSharers[classification_index_array[i]+1] |= remote_sharers[(i*2)+1];
+		}
+	}
+	MPI_Win_unlock(workrank, sharerWindow);
+
+	/* If any owner of a page we loaded needs to downgrade from private
+	 * to shared, we need to notify it */
+	for(std::size_t i = 0; i < fetch_size; i+=CACHELINE){
+		/* Skip pages that are not loaded or already handled */
+		if(pages_to_load[i] && !handled_pages[i]){
+			std::fill(sharer_bit_mask.begin(), sharer_bit_mask.end(), 0);
+			const std::uintptr_t owner_id_bit =
+				remote_sharers[i*2]&node_id_inv_bit; // remove own bit
+
+			/* If there is exactly one other owner, and we are not sharer */
+			if(isPowerOf2(owner_id_bit) && owner_id_bit != 0 && local_sharers[i] == 0){
+				std::uintptr_t owner = invalid_node; // initialize to failsafe value
+				for(int n = 0; n < numtasks; n++) {
+					if(1ul<<n==owner_id_bit) {
+						owner = n; //just get rank...
+						break;
+					}
+				}
+				sharer_bit_mask[i*2] = node_id_bit;
+
+				/* Check if any of the remaining pages need downgrading on the same node */
+				for(std::size_t j = i+CACHELINE; j < fetch_size; j+=CACHELINE){
+					if(pages_to_load[j] && !handled_pages[j]){
+						if((remote_sharers[j*2]&node_id_inv_bit) == owner_id_bit &&
+								local_sharers[j] == 0){
+							sharer_bit_mask[j*2] = node_id_bit;
+							handled_pages[j] = true; //Ensure these are marked as completed
+						}
+					}
+				}
+
+				/* Downgrade all relevant pages on the owner node from private to shared */
+				MPI_Win_lock(MPI_LOCK_EXCLUSIVE, owner, 0, sharerWindow);
+				MPI_Accumulate(sharer_bit_mask.data(), classification_size, MPI_LONG, owner,
+						classification_index_array[0], classification_size, MPI_LONG,
+						MPI_BOR, sharerWindow);
+				MPI_Win_unlock(owner, sharerWindow);
+			}
+		}
+	}
+
+	/* Finally, get the cache data and store it temporarily */
+	MPI_Win_lock(MPI_LOCK_SHARED, load_node , 0, globalDataWindow[load_node]);
+	MPI_Get(temp_data.data(), fetch_size, cacheblock,
+					load_node, load_offset, fetch_size, cacheblock, globalDataWindow[load_node]);
+	MPI_Win_unlock(load_node, globalDataWindow[load_node]);
+
+	/* Update the cache */
+	for(std::size_t idx = start_index, p = 0; idx < end_index; idx+=CACHELINE, p+=CACHELINE){
+		/* Update only the pages necessary */
+		if(pages_to_load[p]){
+			/* Insert the data in the node cache */
+			memcpy(&cacheData[idx*block_size], &temp_data[p*block_size], block_size);
+
+			const std::size_t temp_addr = aligned_access_offset + p*block_size;
+			void* temp_ptr = static_cast<char*>(startAddr) + temp_addr;
+
+			/* If this is the first time inserting in to this index, perform vm map */
+			if(cacheControl[idx].tag == GLOBAL_NULL){
+				vm::map_memory(temp_ptr, block_size, pagesize*idx, PROT_READ);
+				cacheControl[idx].tag = temp_addr;
+			}else{
+				/* Else, just mprotect the region */
+				mprotect(temp_ptr, block_size, PROT_READ);
+			}
+			touchedcache[idx] = 1;
+			cacheControl[idx].state = VALID;
+			cacheControl[idx].dirty=CLEAN;
+		}
+	}
 	sem_post(&ibsem);
 }
 
-void prefetch_cache_entry(unsigned long prefetchtag, unsigned long prefetchline) {
-	int i;
-	unsigned long homenode;
-	unsigned long id = 1 << getID();
-	unsigned long invid = ~id;
-	if(prefetchtag>=size_of_all){//Trying to access/prefetch out of memory
-		return;
-	}
-
-
-	homenode = getHomenode(prefetchtag);
-	unsigned long cacheIndex = prefetchline;
-	if(cacheIndex >= cachesize){
-		printf("idx > size   cacheIndex:%ld cachesize:%ld\n",cacheIndex,cachesize);
-		return;
-	}
-
-
-	sem_wait(&ibsem);
-	unsigned long pageAddr = prefetchtag;
-	unsigned long blocksize = pagesize*CACHELINE;
-	unsigned long lineAddr = pageAddr/blocksize;
-	lineAddr *= blocksize;
-	unsigned long startidx = cacheIndex/CACHELINE;
-	startidx*=CACHELINE;
-	unsigned long end = startidx+CACHELINE;
-
-	if(end>=cachesize){
-		end = cachesize;
-	}
-	argo_byte tmpstate = cacheControl[startidx].state;
-	unsigned long tmptag = cacheControl[startidx].tag;
-	if(tmptag == lineAddr && tmpstate != INVALID){ //trying to load already valid ..
-		sem_post(&ibsem);
-		return;
-	}
-
-
-	void * lineptr = (char*)startAddr + lineAddr;
-
-	if(cacheControl[startidx].tag  != lineAddr){
-		if(cacheControl[startidx].tag  != lineAddr){
-
-			void * tmpptr2 = (char*)startAddr + cacheControl[startidx].tag;
-			if(cacheControl[startidx].tag != GLOBAL_NULL && cacheControl[startidx].tag  != lineAddr){
-				argo_byte dirty = cacheControl[startidx].dirty;
-				if(dirty == DIRTY){
-					mprotect(tmpptr2,blocksize,PROT_READ);
-					int j;
-					for(j=0; j < CACHELINE; j++){
-						storepageDIFF(startidx+j,pagesize*j+(cacheControl[startidx].tag));
-					}
-					argo_write_buffer->erase(startidx);
-				}
-
-				for(i = 0; i < numtasks; i++){
-					if(barwindowsused[i] == 1){
-						MPI_Win_unlock(i, globalDataWindow[i]);
-						barwindowsused[i] = 0;
-					}
-				}
-
-
-				cacheControl[startidx].state = INVALID;
-				cacheControl[startidx].tag = lineAddr;
-				cacheControl[startidx].dirty=CLEAN;
-
-				vm::map_memory(lineptr, blocksize, pagesize*startidx, PROT_NONE);
-				mprotect(tmpptr2,blocksize,PROT_NONE);
-
-			}
-		}
-	}
-
-	stats.loads++;
-	unsigned long classidx = get_classification_index(lineAddr);
-	unsigned long tempsharer = 0;
-	unsigned long tempwriter = 0;
-	MPI_Win_lock(MPI_LOCK_SHARED, workrank, 0, sharerWindow);
-	unsigned long prevsharer = (globalSharers[classidx])&id;
-	MPI_Win_unlock(workrank, sharerWindow);
-	int n;
-	homenode = getHomenode(lineAddr);
-
-	if(prevsharer==0 ){ //if there is strictly less than two 'stable' sharers
-		MPI_Win_lock(MPI_LOCK_SHARED, homenode, 0, sharerWindow);
-		MPI_Get_accumulate(&id, 1, MPI_LONG, &tempsharer, 1, MPI_LONG,
-			homenode, classidx, 1, MPI_LONG, MPI_BOR, sharerWindow);
-		MPI_Get(&tempwriter, 1,MPI_LONG,homenode,classidx+1,1,MPI_LONG,sharerWindow);
-		MPI_Win_unlock(homenode, sharerWindow);
-	}
-
-	MPI_Win_lock(MPI_LOCK_EXCLUSIVE, workrank, 0, sharerWindow);
-	globalSharers[classidx] |= tempsharer;
-	globalSharers[classidx+1] |= tempwriter;
-	MPI_Win_unlock(workrank, sharerWindow);
-
-	unsigned long offset = getOffset(lineAddr);
-	if(isPowerOf2((tempsharer)&invid) && prevsharer == 0){ //Other private. but may not have loaded page yet.
-		unsigned long ownid = tempsharer&invid; // remove own bit
-		unsigned long owner = invalid_node; // initialize to failsafe value
-		for(n=0; n<numtasks; n++) {
-			if(1ul<<n == ownid) {
-				owner = n; //just get rank...
-				break;
-			}
-		}
-		if(owner != invalid_node) {
-			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, owner, 0, sharerWindow);
-			MPI_Accumulate(&id, 1, MPI_LONG, owner, classidx, 1, MPI_LONG, MPI_BOR, sharerWindow);
-			MPI_Win_unlock(owner, sharerWindow);
-		}
-
-	}
-
-	MPI_Win_lock(MPI_LOCK_SHARED, homenode , 0, globalDataWindow[homenode]);
-	MPI_Get(&cacheData[startidx*pagesize], 1, cacheblock, homenode,
-		offset, 1, cacheblock, globalDataWindow[homenode]);
-	MPI_Win_unlock(homenode, globalDataWindow[homenode]);
-
-
-	if(cacheControl[startidx].tag == GLOBAL_NULL){
-		vm::map_memory(lineptr, blocksize, pagesize*startidx, PROT_READ);
-		cacheControl[startidx].tag = lineAddr;
-	}
-	else{
-		mprotect(lineptr,pagesize*CACHELINE,PROT_READ);
-	}
-
-	touchedcache[startidx] = 1;
-	cacheControl[startidx].state = VALID;
-	cacheControl[startidx].dirty=CLEAN;
-	sem_post(&ibsem);
-}
 
 void initmpi(){
 	int ret,initialized,thread_status;
@@ -769,10 +717,10 @@ void initmpi(){
 	init_mpi_cacheblock();
 }
 
-unsigned int getID(){
+argo::node_id_t getID(){
 	return workrank;
 }
-unsigned int argo_get_nid(){
+argo::node_id_t argo_get_nid(){
 	return workrank;
 }
 
@@ -850,6 +798,8 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 		pthread_barrier_init(&threadbarrier[i],NULL,i);
 	}
 
+	/** Get the number of pages to load from the env module */
+	load_size = env::load_size();
 	/** Limit cache_size to at most argo_size */
 	cachesize = std::min(argo_size, cache_size);
 	/** Round the number of cache pages upwards */
@@ -858,7 +808,7 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	cachesize = std::max(cachesize, static_cast<unsigned long>(pagesize*CACHELINE*2));
 	cachesize /= pagesize;
 
-	classificationSize = 2*cachesize; // Could be smaller ?
+	classificationSize = 2*(argo_size/pagesize);
 	argo_write_buffer = new write_buffer<std::size_t>();
 
 	barwindowsused = (char *)malloc(numtasks*sizeof(char));
@@ -1195,8 +1145,8 @@ void clearStatistics(){
 void storepageDIFF(unsigned long index, unsigned long addr){
 	unsigned int i,j;
 	int cnt = 0;
-	unsigned long homenode = getHomenode(addr);
-	unsigned long offset = getOffset(addr);
+	const argo::node_id_t homenode = get_homenode(addr);
+	const std::size_t offset = get_offset(addr);
 
 	char * copy = (char *)(pagecopy + index*pagesize);
 	char * real = (char *)startAddr+addr;
@@ -1252,4 +1202,20 @@ size_t argo_get_global_size(){return size_of_all;}
 
 unsigned long get_classification_index(uint64_t addr){
 	return (2*(addr/(pagesize*CACHELINE))) % classificationSize;
+}
+
+bool _is_cached(std::size_t addr) {
+	argo::node_id_t homenode;
+	std::size_t aligned_address = align_backwards(
+			addr-reinterpret_cast<std::size_t>(startAddr), CACHELINE*pagesize);
+	if(dd::is_first_touch_policy()){
+		homenode = peek_homenode(aligned_address);
+	}else{
+		homenode = get_homenode(aligned_address);
+	}
+	std::size_t cache_index = getCacheIndex(aligned_address);
+
+	// Return true for pages which are either local or already cached
+	return ((homenode == getID()) || (cacheControl[cache_index].tag == aligned_address &&
+				cacheControl[cache_index].state == VALID));
 }

@@ -35,21 +35,21 @@ namespace argo {
 
 			public:
 				/** @brief construct nullptr */
-				global_ptr() : homenode(-1), local_offset(0) {}
+				global_ptr() : homenode(invalid_node_id), local_offset(invalid_offset) {}
 
 				/**
 				 * @brief construct from virtual address pointer
 				 * @param ptr pointer to construct from
-				 * @param sel select to invoke the homenode, the local_offset or both
+				 * @param compute_homenode If true, compute the homenode in constructor
+				 * @param compute_offset If true, compute local offset in constructor
 				 */
-				global_ptr(T* ptr, const std::string& sel = "")
-						: homenode(-1), local_offset(0), access_ptr(ptr) {
-					if (!sel.compare("getHomenode")) {
+				global_ptr(T* ptr, const bool compute_homenode = true,
+									const bool compute_offset = true)
+						: homenode(invalid_node_id), local_offset(invalid_offset), access_ptr(ptr) {
+					if(compute_homenode){
 						homenode = policy()->homenode(reinterpret_cast<char*>(ptr));
-					} else if (!sel.compare("getOffset")) {
-						local_offset = policy()->local_offset(reinterpret_cast<char*>(ptr));
-					} else {
-						homenode = policy()->homenode(reinterpret_cast<char*>(ptr));
+					}
+					if(compute_offset){
 						local_offset = policy()->local_offset(reinterpret_cast<char*>(ptr));
 					}
 				}
@@ -89,6 +89,32 @@ namespace argo {
 				 * @return home node id
 				 */
 				node_id_t node() {
+					// If homenode is not yet calculated we need to find it
+					if(homenode == invalid_node_id) {
+						homenode = policy()->homenode(
+								reinterpret_cast<char*>(access_ptr));
+					}
+					return homenode;
+				}
+
+				/**
+				 * @brief return the home node of the value pointed to, or a
+				 * default value if the page has not yet been first-touched
+				 * under first-touch allocation.
+				 * @return home node id
+				 */
+				node_id_t peek_node() {
+					// If homenode is not yet calculated we need to find it
+					if(homenode == invalid_node_id) {
+						// Do not invoke first-touch
+						if(is_first_touch_policy()) {
+							homenode = policy()->peek_homenode(
+									reinterpret_cast<char*>(access_ptr));
+						} else {
+							homenode = policy()->homenode(
+									reinterpret_cast<char*>(access_ptr));
+						}
+					}
 					return homenode;
 				}
 
@@ -97,6 +123,31 @@ namespace argo {
 				 * @return local offset
 				 */
 				std::size_t offset() {
+					if(local_offset == invalid_offset) {
+						local_offset = policy()->local_offset(
+								reinterpret_cast<char*>(access_ptr));
+					}
+					return local_offset;
+				}
+
+				/**
+				 * @brief return the offset on the home node's local memory share
+				 * or a default value if the page has not yet been first-touched
+				 * under first-touch allocation.
+				 * @return local offset
+				 */
+				node_id_t peek_offset() {
+					// If homenode is not yet calculated we need to find it
+					if(local_offset == invalid_offset) {
+						// Do not invoke first-touch
+						if(is_first_touch_policy()) {
+							local_offset = policy()->peek_local_offset(
+									reinterpret_cast<char*>(access_ptr));
+						} else {
+							local_offset = policy()->local_offset(
+									reinterpret_cast<char*>(access_ptr));
+						}
+					}
 					return local_offset;
 				}
 

@@ -176,6 +176,11 @@ namespace argo {
 			return argo_get_global_size();
 		}
 
+		bool is_cached(void* addr) {
+			return _is_cached(reinterpret_cast<std::size_t>(addr));
+		}
+
+
 		void finalize() {
 			argo_finalize();
 		}
@@ -227,19 +232,20 @@ namespace argo {
 			}
 
 			void _store_public_owners_dir(const void* desired,
-					const std::size_t size, const std::size_t rank, const std::size_t disp) {
+					const std::size_t size, const std::size_t count,
+					const std::size_t rank, const std::size_t disp) {
 				MPI_Datatype t_type = fitting_mpi_int(size);
 				// Perform the store operation
 				MPI_Win_lock(MPI_LOCK_EXCLUSIVE, rank, 0, owners_dir_window);
-				MPI_Put(desired, 3, t_type, rank, disp, 3, t_type, owners_dir_window);
+				MPI_Put(desired, count, t_type, rank, disp, count, t_type, owners_dir_window);
 				MPI_Win_unlock(rank, owners_dir_window);
 			}
 
 			void _store_local_owners_dir(const std::size_t* desired,
-					const std::size_t rank, const std::size_t disp) {
+					const std::size_t count, const std::size_t rank, const std::size_t disp) {
 				// Perform the store operation
 				MPI_Win_lock(MPI_LOCK_EXCLUSIVE, rank, 0, owners_dir_window);
-				std::copy(desired, desired + 3, &global_owners_dir[disp]);
+				std::copy(desired, desired + count, &global_owners_dir[disp]);
 				MPI_Win_unlock(rank, owners_dir_window);
 			}
 
@@ -264,19 +270,22 @@ namespace argo {
 			}
 
 			void _load_public_owners_dir(void* output_buffer,
-					const std::size_t size, const std::size_t rank, const std::size_t disp) {
+					const std::size_t size, const std::size_t count,
+					const std::size_t rank, const std::size_t disp) {
 				MPI_Datatype t_type = fitting_mpi_int(size);
 				// Perform the load operation
 				MPI_Win_lock(MPI_LOCK_SHARED, rank, 0, owners_dir_window);
-				MPI_Get(output_buffer, 3, t_type, rank, disp, 3, t_type, owners_dir_window);
+				MPI_Get(output_buffer, count, t_type, rank, disp, count, t_type, owners_dir_window);
 				MPI_Win_unlock(rank, owners_dir_window);
 			}
 
 			void _load_local_owners_dir(void* output_buffer,
-					const std::size_t rank, const std::size_t disp) {
+					const std::size_t count, const std::size_t rank, const std::size_t disp) {
 				// Perform the load operation
 				MPI_Win_lock(MPI_LOCK_SHARED, rank, 0, owners_dir_window);
-				*(static_cast<std::size_t*>(output_buffer)) = global_owners_dir[disp];
+				std::copy(&global_owners_dir[disp],
+						&global_owners_dir[disp+count],
+						static_cast<std::size_t*>(output_buffer));
 				MPI_Win_unlock(rank, owners_dir_window);
 			}
 
