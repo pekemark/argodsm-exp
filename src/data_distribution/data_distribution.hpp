@@ -7,6 +7,7 @@
 #ifndef argo_data_distribution_hpp
 #define argo_data_distribution_hpp argo_data_distribution_hpp
 
+#include "base_distribution.hpp"
 #include "naive_distribution.hpp"
 #include "cyclic_distribution.hpp"
 #include "skew_mapp_distribution.hpp"
@@ -124,6 +125,24 @@ namespace argo {
 			std::size_t padding = (is_cyclic_policy()) ? env::allocation_block_size() : 1;
 			padding *= (is_prime_policy()) ? ((3 * argo::backend::number_of_nodes()) / 2) : 1;
 			return padding;
+		}
+
+		/**
+		 * @brief based on the chosen policy, gets the policy
+		 * 		  block size
+		 * @return The requested block size for all cyclical policies,
+		 * 		   the size of a page for the first-touch policy or the chunk
+		 * 		   size per node for the naive policy
+		 */
+		static inline std::size_t policy_block_size() {
+			std::size_t requested_block_size = env::allocation_block_size();
+			if(is_cyclic_policy()) {
+				return requested_block_size*granularity;
+			}else if(is_first_touch_policy()) {
+				return granularity;
+			}else {
+				return base_distribution<0>::get_size_per_node();
+			}
 		}
 #if 0
 		/** @brief a test-and-test-and-set lock */

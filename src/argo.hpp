@@ -13,6 +13,7 @@
 #include "backend/backend.hpp"
 #include "types/types.hpp"
 #include "synchronization/synchronization.hpp"
+#include "data_distribution/data_distribution.hpp"
 
 extern "C" {
 #include "argo.h"
@@ -69,6 +70,40 @@ namespace argo {
 	 */
 	int number_of_nodes();
 
+	/**
+	 * @brief Check if addr belongs in the ArgoDSM memory space
+	 * @tparam T type of addr
+	 * @param addr A memory address
+	 * @return True if addr is in the ArgoDSM memory space, else false
+	 */
+	template<typename T>
+	bool is_argo_address(T* addr) {
+		char* check_addr = static_cast<char*>(addr);
+		char* argo_start = backend::global_base();
+		char* argo_end = argo_start + backend::global_size();
+		return static_cast<bool>(check_addr >= argo_start && check_addr < argo_end);
+	}
+
+	/**
+	 * @brief Get the ArgoDSM node id where addr is physically backed
+	 * @param addr A valid address in the ArgoDSM memory space
+	 * @tparam T type of addr
+	 * @return The id of the node physically backing addr, or
+	 * argo::data_distribution::invalid_node_id if it has not yet
+	 * been first-touched under the first-touch allocation policy
+	 * @pre addr must be an address in ArgoDSM memory
+	 */
+	template<typename T>
+	int get_homenode(T* addr) {
+		data_distribution::global_ptr<T> gptr(addr, false, false);
+		return gptr.peek_node();
+	}
+
+	/**
+	 * @brief Get the block size of the current allocation policy
+	 * @return The block size of the current allocation policy in bytes
+	 */
+	std::size_t get_block_size();
 } // namespace argo
 
 #endif /* argo_argo_hpp */

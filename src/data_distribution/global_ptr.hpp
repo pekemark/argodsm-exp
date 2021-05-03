@@ -101,18 +101,18 @@ namespace argo {
 				 * @brief return the home node of the value pointed to, or a
 				 * default value if the page has not yet been first-touched
 				 * under first-touch allocation.
-				 * @return home node id
+				 * @return home node id, or argo::data_distribution::invalid_node_id
+				 * if access_ptr has not been first-touched yet under the
+				 * first-touch allocation policy
 				 */
 				node_id_t peek_node() {
 					// If homenode is not yet calculated we need to find it
 					if(homenode == invalid_node_id) {
-						// Do not invoke first-touch
-						if(is_first_touch_policy()) {
-							homenode = policy()->peek_homenode(
-									reinterpret_cast<char*>(access_ptr));
-						} else {
-							homenode = policy()->homenode(
-									reinterpret_cast<char*>(access_ptr));
+						// Avoid invoking first-touch
+						node_id_t new_node = policy()->peek_homenode(
+								reinterpret_cast<char*>(access_ptr));
+						if(new_node != invalid_node_id) {
+							homenode = new_node;
 						}
 					}
 					return homenode;
@@ -134,18 +134,18 @@ namespace argo {
 				 * @brief return the offset on the home node's local memory share
 				 * or a default value if the page has not yet been first-touched
 				 * under first-touch allocation.
-				 * @return local offset
+				 * @return local offset, or argo::data_distribution::invalid_offset
+				 * if access_ptr has not been first-touched yet under the
+				 * first-touch allocation policy
 				 */
-				node_id_t peek_offset() {
+				std::size_t peek_offset() {
 					// If homenode is not yet calculated we need to find it
 					if(local_offset == invalid_offset) {
-						// Do not invoke first-touch
-						if(is_first_touch_policy()) {
-							local_offset = policy()->peek_local_offset(
-									reinterpret_cast<char*>(access_ptr));
-						} else {
-							local_offset = policy()->local_offset(
-									reinterpret_cast<char*>(access_ptr));
+						// Avoid invoking first-touch
+						std::size_t new_offset = policy()->peek_local_offset(
+								reinterpret_cast<char*>(access_ptr));
+						if(new_offset != invalid_offset) {
+							local_offset = new_offset;
 						}
 					}
 					return local_offset;

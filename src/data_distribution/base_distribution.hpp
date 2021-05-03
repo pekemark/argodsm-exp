@@ -69,6 +69,14 @@ namespace argo {
 				}
 
 				/**
+				 * @brief get the backing store size per node
+				 * @return the value of size_per_node
+				 */
+				static std::size_t get_size_per_node() {
+					return size_per_node;
+				}
+
+				/**
 				 * @brief compute home node of an address
 				 * @param ptr address to find homenode of
 				 * @return the computed home node

@@ -10,10 +10,12 @@
 #include "allocators/dynamic_allocator.hpp"
 #include "env/env.hpp"
 #include "virtual_memory/virtual_memory.hpp"
+#include "data_distribution/data_distribution.hpp"
 
 namespace vm = argo::virtual_memory;
 namespace mem = argo::mempools;
 namespace alloc = argo::allocators;
+namespace dd = argo::data_distribution;
 
 /* some memory pools for default use */
 /** @todo should be static? */
@@ -69,6 +71,9 @@ namespace argo {
 		return static_cast<int>(argo::backend::number_of_nodes());
 	}
 
+	std::size_t get_block_size() {
+		return dd::policy_block_size();
+	}
 } // namespace argo
 
 extern "C" {
@@ -100,5 +105,17 @@ extern "C" {
 
 	int argo_number_of_nodes() {
 		return argo::number_of_nodes();
+	}
+
+	bool argo_is_argo_address(void* addr) {
+		return argo::is_argo_address(addr);
+	}
+
+	int argo_get_homenode(void* addr) {
+		return argo::get_homenode(addr);
+	}
+
+	size_t argo_get_block_size() {
+		return static_cast<size_t>(argo::get_block_size());
 	}
 }

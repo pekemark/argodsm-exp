@@ -32,6 +32,10 @@ namespace argo {
 					return homenode;
 				}
 
+				virtual node_id_t peek_homenode(char* const ptr) {
+					return homenode(ptr);
+				}
+
 				virtual std::size_t local_offset (char* const ptr) {
 					const std::size_t addr = ptr - base_distribution<instance>::start_address;
 					std::size_t offset = addr - (homenode(ptr)) * base_distribution<instance>::size_per_node;
@@ -42,6 +46,10 @@ namespace argo {
 						exit(EXIT_FAILURE);
 					}
 					return offset;
+				}
+
+				virtual std::size_t peek_local_offset (char* const ptr) {
+					return local_offset(ptr);
 				}
 		};
 	} // namespace data_distribution

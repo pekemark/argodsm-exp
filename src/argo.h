@@ -48,4 +48,27 @@ int  argo_node_id();
  */
 int  argo_number_of_nodes();
 
+/**
+ * @brief Check if addr belongs in the ArgoDSM memory space
+ * @param addr A memory address
+ * @return True if addr is in the ArgoDSM memory space, else false
+ */
+bool argo_is_argo_address(void* addr);
+
+/**
+ * @brief Get the ArgoDSM node id where addr is physically backed
+ * @param addr A valid address in the ArgoDSM memory space
+ * @return The id of the node physically backing addr, or
+ * argo::data_distribution::invalid_node_id if it has not yet
+ * been first-touched under the first-touch allocation policy
+ * @pre addr must be an address in ArgoDSM memory
+ */
+int argo_get_homenode(void* addr);
+
+/**
+ * @brief Get the block size of the current allocation policy
+ * @return The block size of the current allocation policy in bytes
+ */
+size_t argo_get_block_size();
+
 #endif /* argo_argo_h */

@@ -1208,11 +1208,7 @@ bool _is_cached(std::size_t addr) {
 	argo::node_id_t homenode;
 	std::size_t aligned_address = align_backwards(
 			addr-reinterpret_cast<std::size_t>(startAddr), CACHELINE*pagesize);
-	if(dd::is_first_touch_policy()){
-		homenode = peek_homenode(aligned_address);
-	}else{
-		homenode = get_homenode(aligned_address);
-	}
+	homenode = peek_homenode(aligned_address);
 	std::size_t cache_index = getCacheIndex(aligned_address);
 
 	// Return true for pages which are either local or already cached
