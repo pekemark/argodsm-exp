@@ -88,7 +88,7 @@ namespace argo {
 				avail_pmem = ARGO_SIZE_LIMIT;
 			}
 			std::string filename = "/mnt/pmem0/argopmem" + std::to_string(getpid());
-			fd_pmem = open(filename.c_str(), O_RDWR|O_CREAT, 0644);
+			fd_pmem = open(filename.c_str(), O_RDWR|O_CREAT|O_DIRECT|O_SYNC, 0644);
 			if(unlink(filename.c_str())) {
 				std::cerr << msg_main_mmap_fail << std::endl;
 				throw std::system_error(std::make_error_code(static_cast<std::errc>(errno)), msg_main_mmap_fail);
@@ -140,8 +140,8 @@ namespace argo {
 
 		void map_memory(void* addr, std::size_t size, std::size_t offset, int prot, int smem) {
 			auto p = (smem == 0)
-				? ::mmap(addr, size, prot, MAP_SHARED|MAP_FIXED, fd_smem, offset)
-				: ::mmap(addr, size, prot, MAP_SHARED|MAP_FIXED, fd_pmem, offset);
+				? ::mmap(addr, size, prot, MAP_SHARED|MAP_FIXED                  , fd_smem, offset)
+				: ::mmap(addr, size, prot, MAP_SHARED_VALIDATE|MAP_SYNC|MAP_FIXED, fd_pmem, offset);
 			if(p == MAP_FAILED) {
 				std::cerr << msg_mmap_fail << std::endl;
 				throw std::system_error(std::make_error_code(static_cast<std::errc>(errno)), msg_mmap_fail);
