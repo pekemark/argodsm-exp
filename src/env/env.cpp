@@ -58,6 +58,12 @@ namespace {
 	const std::size_t default_load_size = 8;
 
 	/**
+	 * @brief default nvm path (if environment variable is unset)
+	 * @see @ref ARGO_NVM_PATH
+	 */
+	const std::string default_nvm_path = "";
+
+	/**
 	 * @brief environment variable used for requesting memory size
 	 * @see @ref ARGO_MEMORY_SIZE
 	 */
@@ -98,6 +104,14 @@ namespace {
 	 * @see @ref ARGO_LOAD_SIZE
 	 */
 	const std::string env_load_size = "ARGO_LOAD_SIZE";
+
+	/**
+	 * @brief environment variable used for pointing to the nvm path
+	 * @note fsdax: mounted directory path
+	 * @todo devdax: character device file
+	 * @see @ref ARGO_NVM_PATH
+	 */
+	const std::string env_nvm_path = "ARGO_NVM_PATH";
 
 	/** @brief error message string */
 	const std::string msg_uninitialized = "argo::env::init() must be called before accessing environment values";
@@ -141,6 +155,11 @@ namespace {
 	 * @brief load size requested through the environment variable @ref ARGO_LOAD_SIZE
 	 */
 	std::size_t value_load_size;
+
+	/**
+	 * @brief nvm path requested through the environment variable @ref ARGO_NVM_PATH
+	 */
+	std::string value_nvm_path;
 
 	/** @brief flag to allow checking that environment variables have been read before accessing their values */
 	bool is_initialized = false;
@@ -206,6 +225,7 @@ namespace argo {
 			value_allocation_policy = parse_env<std::size_t>(env_allocation_policy, default_allocation_policy).second;
 			value_allocation_block_size = parse_env<std::size_t>(env_allocation_block_size, default_allocation_block_size).second;
 			value_load_size = parse_env<std::size_t>(env_load_size, default_load_size).second;
+			value_nvm_path = parse_env<std::string>(env_nvm_path, default_nvm_path).second;
 
 			is_initialized = true;
 		}
@@ -243,6 +263,11 @@ namespace argo {
 		std::size_t load_size() {
 			assert_initialized();
 			return value_load_size;
+		}
+
+		std::string nvm_path() {
+			assert_initialized();
+			return value_nvm_path;
 		}
 	} // namespace env
 } // namespace argo

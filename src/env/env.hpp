@@ -8,6 +8,7 @@
 #define argo_env_env_hpp argo_env_env_hpp
 
 #include <cstddef>
+#include <string>
 
 /**
  * @page envvars Environment Variables
@@ -110,6 +111,13 @@ namespace argo {
 		 * @see @ref ARGO_LOAD_SIZE
 		 */
 		std::size_t load_size();
+
+		/**
+		 * @brief get the nvm path requested by environment variable
+		 * @return the requested nvm path as a string
+		 * @see @ref ARGO_NVM_PATH
+		 */
+		std::string nvm_path();
 	} // namespace env
 } // namespace argo
 

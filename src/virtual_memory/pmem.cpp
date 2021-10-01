@@ -16,6 +16,8 @@
 #include <sys/types.h>
 #include <system_error>
 #include <unistd.h>
+
+#include "../env/env.hpp"
 #include "virtual_memory.hpp"
 
 namespace {
@@ -80,14 +82,20 @@ namespace argo {
 		}
 
 		void init_pmem() {
+			/** @todo add more nvm_path checks */
+			std::string nvm_path = env::nvm_path();
+			if(nvm_path.empty()) {
+				throw std::invalid_argument(
+					"Invalid nvm path");
+			}
 			/* find maximum filesize */
 			struct statvfs b;
-			statvfs("/mnt/pmem0", &b);
+			statvfs(nvm_path.c_str(), &b);
 			avail_pmem = b.f_bavail * b.f_bsize;
 			if(avail_pmem > static_cast<unsigned long>(ARGO_SIZE_LIMIT)) {
 				avail_pmem = ARGO_SIZE_LIMIT;
 			}
-			std::string filename = "/mnt/pmem0/argopmem" + std::to_string(getpid());
+			std::string filename = nvm_path + "/argopmem" + std::to_string(getpid());
 			fd_pmem = open(filename.c_str(), O_RDWR|O_CREAT|O_DIRECT|O_SYNC, 0644);
 			if(unlink(filename.c_str())) {
 				std::cerr << msg_main_mmap_fail << std::endl;
