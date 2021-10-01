@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -154,16 +155,22 @@ namespace {
 
 	/**
 	 * @brief parse an environment variable
+	 * @tparam T type of value
 	 * @param name the environment variable to parse
 	 * @param fallback the default value to use if the environment variable is undefined
 	 * @return a pair <env_used, value>, where env_used is true iff the environment variable is set,
 	 *         and value is either the value of the environment variable or the fallback value.
 	 */
-	std::pair<bool, std::size_t> parse_env(std::string name, std::size_t fallback) {
-		auto env_value = std::getenv(name.c_str());
+	template<typename T>
+	std::pair<bool, T> parse_env(std::string name, T fallback) {
+		auto env_get = std::getenv(name.c_str());
 		try {
-			if(env_value != nullptr) {
-				return std::make_pair(true, std::stoul(env_value));
+			if(env_get != nullptr) {
+				std::string env_string(env_get);
+				std::stringstream env_stream(env_string);
+				T env_value;
+				env_stream >> env_value;
+				return std::make_pair(true, env_value);
 			} else {
 				return std::make_pair(false, fallback);
 			}
@@ -183,12 +190,12 @@ namespace {
 namespace argo {
 	namespace env {
 		void init() {
-			value_memory_size = parse_env(env_memory_size, default_memory_size).second;
-			value_cache_size = parse_env(env_cache_size, default_cache_size).second;
-			value_write_buffer_size = parse_env(
+			value_memory_size = parse_env<std::size_t>(env_memory_size, default_memory_size).second;
+			value_cache_size = parse_env<std::size_t>(env_cache_size, default_cache_size).second;
+			value_write_buffer_size = parse_env<std::size_t>(
 					env_write_buffer_size,
 					default_write_buffer_size).second;
-			value_write_buffer_write_back_size = parse_env(
+			value_write_buffer_write_back_size = parse_env<std::size_t>(
 					env_write_buffer_write_back_size,
 					default_write_buffer_write_back_size).second;
 			// Limit the write buffer write back size to the write buffer size
@@ -196,9 +203,9 @@ namespace argo {
 				value_write_buffer_write_back_size = value_write_buffer_size;
 			}
 
-			value_allocation_policy = parse_env(env_allocation_policy, default_allocation_policy).second;
-			value_allocation_block_size = parse_env(env_allocation_block_size, default_allocation_block_size).second;
-			value_load_size = parse_env(env_load_size, default_load_size).second;
+			value_allocation_policy = parse_env<std::size_t>(env_allocation_policy, default_allocation_policy).second;
+			value_allocation_block_size = parse_env<std::size_t>(env_allocation_block_size, default_allocation_block_size).second;
+			value_load_size = parse_env<std::size_t>(env_load_size, default_load_size).second;
 
 			is_initialized = true;
 		}
