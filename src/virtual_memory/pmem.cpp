@@ -147,7 +147,7 @@ namespace argo {
 		}
 
 		void map_memory(void* addr, std::size_t size, std::size_t offset, int prot, int smem) {
-			auto p = (smem == 0)
+			auto p = (smem == memory_type::shm)
 				? ::mmap(addr, size, prot, MAP_SHARED|MAP_FIXED                  , fd_smem, offset)
 				: ::mmap(addr, size, prot, MAP_SHARED_VALIDATE|MAP_SYNC|MAP_FIXED, fd_pmem, offset);
 			if(p == MAP_FAILED) {

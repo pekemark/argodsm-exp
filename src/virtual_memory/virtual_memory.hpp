@@ -12,6 +12,24 @@
 namespace argo {
 	namespace virtual_memory {
 		/**
+		 * @brief Enumeration for the available memory types
+		 */
+		enum memory_type {
+			/**
+			 * @brief the shared memory module
+			 * @note used only in the persistent version
+			 * @see pmem.cpp
+			 */
+			shm,
+			/**
+			 * @brief the persistent memory module
+			 * @note used only in the persistent version
+			 * @see pmem.cpp
+			 */
+			nvm
+		};
+
+		/**
 		 * @brief initialize the ArgoDSM virtual address space
 		 * @todo virtual address space handling should be wrapped into an object
 		 */
@@ -47,9 +65,9 @@ namespace argo {
 		 * @param size the size of the mapping
 		 * @param offset the offset into the backing memory
 		 * @param prot protection flags for the mapping
-		 * @param smem memory to allocate space (0: shared memory, 1: persistent memory)
+		 * @param smem memory to allocate space (shm: shared memory (default), nvm: persistent memory)
 		 */
-		void map_memory(void* addr, std::size_t size, std::size_t offset, int prot, int smem = 0);
+		void map_memory(void* addr, std::size_t size, std::size_t offset, int prot, int smem = memory_type::shm);
 	} // namespace virtual_memory
 } // namespace argo
 
