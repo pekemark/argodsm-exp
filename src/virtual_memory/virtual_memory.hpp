@@ -18,13 +18,13 @@ namespace argo {
 			/**
 			 * @brief the shared memory module
 			 * @note used only in the persistent version
-			 * @see pmem.cpp
+			 * @see nvm.cpp
 			 */
 			shm,
 			/**
 			 * @brief the persistent memory module
 			 * @note used only in the persistent version
-			 * @see pmem.cpp
+			 * @see nvm.cpp
 			 */
 			nvm
 		};

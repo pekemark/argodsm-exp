@@ -33,7 +33,7 @@ option(ARGO_VM_ANONYMOUS
 	"Handle virtual addresses using anonymously-mapped memory. Slow." OFF)
 option(ARGO_VM_MEMFD
 	"Handle virtual addresses using an anonymous memory file. Requires kernel 3.17+." OFF)
-option(ARGO_VM_PMEM
+option(ARGO_VM_NVM
 	"Handle virtual addresses using memory mapped files for shared and persistent memory." ON)
 
 set(ARGO_VM_COUNT 0 CACHE INTERNAL "Check for multiple virtual address handlers")
@@ -55,10 +55,10 @@ if(ARGO_VM_MEMFD)
 	math(EXPR ARGO_VM_COUNT "${ARGO_VM_COUNT} + 1")
 endif(ARGO_VM_MEMFD)
 
-if(ARGO_VM_PMEM)
-	set(vm_sources pmem.cpp)
+if(ARGO_VM_NVM)
+	set(vm_sources nvm.cpp)
 	math(EXPR ARGO_VM_COUNT "${ARGO_VM_COUNT} + 1")
-endif(ARGO_VM_PMEM)
+endif(ARGO_VM_NVM)
 
 if(NOT ARGO_VM_COUNT EQUAL 1)
 	message(FATAL_ERROR "${ARGO_VM_COUNT} virtual address handlers selected. Please select exactly one virtual address handler.")
