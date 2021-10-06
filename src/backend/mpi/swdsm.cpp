@@ -979,6 +979,7 @@ void argo_finalize(){
 	}
 	MPI_Comm_free(&workcomm);
 	MPI_Finalize();
+	close(vm::file_descriptor());
 	return;
 }
 

@@ -68,6 +68,10 @@ namespace argo {
 			return ARGO_SIZE/4;
 		}
 
+		int file_descriptor() {
+			return fd;
+		}
+
 		void* allocate_mappable(std::size_t alignment, std::size_t size) {
 			/* compute next free well-aligned offset */
 			backing_offset = ((backing_offset + alignment - 1)/alignment);

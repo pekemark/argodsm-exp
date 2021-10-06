@@ -48,6 +48,12 @@ namespace argo {
 		std::size_t size();
 
 		/**
+		 * @brief get file descriptor of the ArgoDSM virtual memory
+		 * @return the file descriptor of the ArgoDSM virtual memory
+		 */
+		int file_descriptor();
+
+		/**
 		 * @brief allocate memory that can be mapped into ArgoDSM virtual address space later
 		 * @param alignment the alignment of the allocation
 		 * @param size size of the allocation

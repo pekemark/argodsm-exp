@@ -32,99 +32,122 @@ namespace {
 	const ptrdiff_t ARGO_SIZE_LIMIT = 0x80000000000l;
 
 	/** @brief error message string */
-	const std::string msg_alloc_fail = "ArgoDSM could not allocate mappable memory";
+	const std::string msg_alloc_fail    = "ArgoDSM could not allocate mappable memory";
 	/** @brief error message string */
-	const std::string msg_mmap_fail = "ArgoDSM failed to map in virtual address space.";
+	const std::string msg_mmap_fail     = "ArgoDSM failed to map in virtual address space.";
 	/** @brief error message string */
-	const std::string msg_main_mmap_fail = "ArgoDSM failed to set up virtual memory. Please report a bug.";
+	const std::string msg_main_vm_fail  = "ArgoDSM failed to set up virtual memory. Please report a bug.";
+	/** @brief error message string */
+	const std::string msg_main_shm_fail = "ArgoDSM failed to set up shared memory. Please report a bug.";
+	/** @brief error message string */
+	const std::string msg_main_nvm_fail = "ArgoDSM failed to set up persistent memory. Please report a bug.";
 
-	/* smem variables */
+	/* shm variables */
 	/** @brief a file descriptor for backing the virtual address space used by ArgoDSM */
-	int fd_smem;
-	/** @brief the size of the ArgoDSM virtual address space */
-	std::size_t avail_smem;
+	int fd_shm;
+	/** @brief the size of the ArgoDSM shared memory space     */
+	std::size_t avail_shm;
 
-	/* pmem variables */
+	/* nvm variables */
 	/** @brief a file descriptor for backing the virtual address space used by ArgoDSM */
-	int fd_pmem;
-	/** @brief the size of the ArgoDSM virtual address space */
-	std::size_t avail_pmem;
+	int fd_nvm;
+	/** @brief the size of the ArgoDSM persistent memory space */
+	std::size_t avail_nvm;
 
-	/* vmem variables */
-	/** @brief the address at which the virtual address space used by ArgoDSM starts */
+	/* vm variables  */
+	/** @brief the address at which the virtual address space used by ArgoDSM starts   */
 	void* start_addr;
-	/** @brief the size of the ArgoDSM virtual address space */
-	std::size_t avail;
+	/** @brief the size of the ArgoDSM virtual address space   */
+	std::size_t avail_vm = ARGO_SIZE_LIMIT;
 }
+
+#define ERR(msg) \
+do { \
+	std::cerr << msg << std::endl; \
+	throw std::system_error(std::make_error_code(static_cast<std::errc>(errno)), msg); \
+	exit(EXIT_FAILURE); \
+} while (0)
 
 namespace argo {
 	namespace virtual_memory {
-		void init_smem() {
+		void init_shm() {
+			std::string filename = "/argocache" + std::to_string(getpid());
+			fd_shm = shm_open(filename.c_str(), O_RDWR|O_CREAT, S_IRUSR|S_IWUSR);
+			if(shm_unlink(filename.c_str())) {
+				ERR(msg_main_shm_fail);
+			}
 			/* find maximum filesize */
 			struct statvfs b;
 			statvfs("/dev/shm", &b);
-			avail_smem = b.f_bavail * b.f_bsize;
-			if(avail_smem > static_cast<unsigned long>(ARGO_SIZE_LIMIT)) {
-				avail_smem = ARGO_SIZE_LIMIT;
-			}
-			std::string filename = "/argocache" + std::to_string(getpid());
-			fd_smem = shm_open(filename.c_str(), O_RDWR|O_CREAT, 0644);
-			if(shm_unlink(filename.c_str())) {
-				std::cerr << msg_main_mmap_fail << std::endl;
-				throw std::system_error(std::make_error_code(static_cast<std::errc>(errno)), msg_main_mmap_fail);
-				exit(EXIT_FAILURE);
-			}
-			if(ftruncate(fd_smem, avail_smem)) {
-				std::cerr << msg_main_mmap_fail << std::endl;
-				throw std::system_error(std::make_error_code(static_cast<std::errc>(errno)), msg_main_mmap_fail);
-				exit(EXIT_FAILURE);
+			avail_shm = b.f_bavail * b.f_bsize;
+			if(ftruncate(fd_shm, avail_shm)) {
+				ERR(msg_main_shm_fail);
 			}
 		}
 
-		void init_pmem() {
-			/** @todo add more nvm_path checks */
+		void init_nvm() {
+			/* check if nvm path is given */
 			std::string nvm_path = env::nvm_path();
 			if(nvm_path.empty()) {
 				throw std::invalid_argument(
 					"Invalid nvm path");
 			}
-			/* find maximum filesize */
-			struct statvfs b;
-			statvfs(nvm_path.c_str(), &b);
-			avail_pmem = b.f_bavail * b.f_bsize;
-			if(avail_pmem > static_cast<unsigned long>(ARGO_SIZE_LIMIT)) {
-				avail_pmem = ARGO_SIZE_LIMIT;
+			
+			/* try to open the given path */
+			int flags = O_RDWR;
+			fd_nvm = open(nvm_path.c_str(), flags, S_IRUSR|S_IWUSR);
+			if (fd_nvm == -1) {
+				/** @note fsdax: the nvm directory path should be given  */
+				if (errno == ENOENT) {
+					ERR(msg_main_nvm_fail);
+				}
+				/** @note fsdax: the mounted nvm directory path is given */
+				if (errno == EISDIR) {
+					flags |= O_CREAT|O_DIRECT|O_SYNC;
+					std::string filename = nvm_path + "/argocache" + std::to_string(getpid());
+					fd_nvm = open(filename.c_str(), flags, S_IRUSR|S_IWUSR);
+					if (fd_nvm == -1) {
+						ERR(msg_main_nvm_fail);
+					}
+					/** @note unlink only if don't want to recover the data */
+					if(unlink(filename.c_str())) {
+						ERR(msg_main_nvm_fail);
+					}
+					/* find maximum filesize */
+					struct statvfs b;
+					statvfs(nvm_path.c_str(), &b);
+					avail_nvm = b.f_bavail * b.f_bsize;
+					if(ftruncate(fd_nvm, avail_nvm)) {
+						ERR(msg_main_nvm_fail);
+					}
+				} else {
+					ERR(msg_main_nvm_fail);
+				}
 			}
-			std::string filename = nvm_path + "/argopmem" + std::to_string(getpid());
-			fd_pmem = open(filename.c_str(), O_RDWR|O_CREAT|O_DIRECT|O_SYNC, 0644);
-			if(unlink(filename.c_str())) {
-				std::cerr << msg_main_mmap_fail << std::endl;
-				throw std::system_error(std::make_error_code(static_cast<std::errc>(errno)), msg_main_mmap_fail);
-				exit(EXIT_FAILURE);
-			}
-			if(ftruncate(fd_pmem, avail_pmem)) {
-				std::cerr << msg_main_mmap_fail << std::endl;
-				throw std::system_error(std::make_error_code(static_cast<std::errc>(errno)), msg_main_mmap_fail);
-				exit(EXIT_FAILURE);
+
+			/* find the opened file type */
+			struct stat stbuf;
+			fstat(fd_nvm, &stbuf);
+			if (!(S_ISREG(stbuf.st_mode) ||
+			      S_ISCHR(stbuf.st_mode))) {
+				/* neither regular file nor character device */
+				ERR(msg_main_nvm_fail);
 			}
 		}
 
-		void init_vmem() {
+		void init_vm() {
 			/** @todo check desired range is free */
-			avail = avail_smem + avail_pmem;
 			constexpr int flags = MAP_ANONYMOUS|MAP_SHARED|MAP_FIXED|MAP_NORESERVE;
-			start_addr = ::mmap((void*)ARGO_START, avail, PROT_NONE, flags, -1, 0);
+			start_addr = ::mmap((void*)ARGO_START, avail_vm, PROT_NONE, flags, -1, 0);
 			if(start_addr == MAP_FAILED) {
-				std::cerr << msg_main_mmap_fail << std::endl;
-				throw std::system_error(std::make_error_code(static_cast<std::errc>(errno)), msg_main_mmap_fail);
-				exit(EXIT_FAILURE);
+				ERR(msg_main_vm_fail);
 			}
 		}
 
 		void init() {
-			init_smem();
-			init_pmem();
-			init_vmem();
+			init_shm();
+			init_nvm();
+			init_vm();
 		}
 
 		void* start_address() {
@@ -132,28 +155,28 @@ namespace argo {
 		}
 
 		std::size_t size() {
-			return avail;
+			return avail_vm;
+		}
+
+		int file_descriptor() {
+			return fd_nvm;
 		}
 
 		void* allocate_mappable(std::size_t alignment, std::size_t size) {
 			void* p;
 			auto r = posix_memalign(&p, alignment, size);
 			if(r || p == nullptr) {
-				std::cerr << msg_alloc_fail << std::endl;
-				throw std::system_error(std::make_error_code(static_cast<std::errc>(r)), msg_alloc_fail);
-				return nullptr;
+				ERR(msg_alloc_fail);
 			}
 			return p;
 		}
 
 		void map_memory(void* addr, std::size_t size, std::size_t offset, int prot, int smem) {
 			auto p = (smem == memory_type::shm)
-				? ::mmap(addr, size, prot, MAP_SHARED|MAP_FIXED                  , fd_smem, offset)
-				: ::mmap(addr, size, prot, MAP_SHARED_VALIDATE|MAP_SYNC|MAP_FIXED, fd_pmem, offset);
+				? ::mmap(addr, size, prot, MAP_SHARED|MAP_FIXED                  , fd_shm, offset)
+				: ::mmap(addr, size, prot, MAP_SHARED_VALIDATE|MAP_SYNC|MAP_FIXED, fd_nvm, offset);
 			if(p == MAP_FAILED) {
-				std::cerr << msg_mmap_fail << std::endl;
-				throw std::system_error(std::make_error_code(static_cast<std::errc>(errno)), msg_mmap_fail);
-				exit(EXIT_FAILURE);
+				ERR(msg_mmap_fail);
 			}
 		}
 	} // namespace virtual_memory

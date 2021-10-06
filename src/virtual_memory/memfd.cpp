@@ -68,6 +68,10 @@ namespace argo {
 			return ARGO_SIZE/2;
 		}
 
+		int file_descriptor() {
+			return fd;
+		}
+
 		void* allocate_mappable(std::size_t alignment, std::size_t size) {
 			void* p;
 			auto r = posix_memalign(&p, alignment, size);
