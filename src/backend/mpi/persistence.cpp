@@ -147,9 +147,9 @@ namespace argo::backend::persistence {
 			 * @param location Identifier of the data location.
 			 * @param original_data Pointer to original, unmodified data.
 			 */
-			link(link *next, location_t location, char *original_data) {
-				this->next = next;
-				this->location = location;
+			link(link *next, location_t location, char *original_data)
+			: next(next)
+			, location(location) {
 				memcpy(this->original_data, original_data, entry_size);
 				pm_fence();
 			}
@@ -171,10 +171,10 @@ namespace argo::backend::persistence {
 					change_map_t cm_entry = 0;
 					FOR_RANGE_COND(size_t, cm_subindex, 0, cm_flags_per_index, data_index < entry_size) {
 						change_map_t cm_subentry = 0;
-						FOR_RANGE(size_t, drf_index, 0, dirty_unit) {
+						FOR_RANGE(size_t, dirty_index, 0, dirty_unit) {
 							// Cond (data_index < entry_size) not needed since dirty_unit divides entry size.
 							if (original_data[data_index] != modified_data[data_index])
-								cm_subentry = 1; // The DRF unit has changed.
+								cm_subentry = 1; // The dirty unit has changed.
 							++data_index;
 						}
 						cm_entry |= cm_subentry << cm_subindex;

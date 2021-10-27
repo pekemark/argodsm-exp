@@ -9,8 +9,12 @@
 
 #include "../backend/backend.hpp"
 #include "../data_distribution/global_ptr.hpp"
+#include "../data_distribution/data_distribution.hpp"
+#include "../types/types.hpp"
 #include <chrono>
 #include <thread>
+
+// #define PA_PACKED_COMPACT
 
 namespace argo {
 	namespace globallock {
@@ -18,26 +22,46 @@ namespace argo {
 		class global_tas_lock {
 			private:
 				/** @brief constant signifying lock is in an initial state and free */
+				#ifdef PA_PACKED_COMPACT
+				static const uint8_t init = UINT8_MAX-1;
+				#else
 				static const std::size_t init = -2;
+				#endif
 				/** @brief constant signifying lock is taken */
+				#ifdef PA_PACKED_COMPACT
+				static const uint8_t locked = UINT8_MAX;
+				#else
 				static const std::size_t locked = -1;
+				#endif
 
 				/** @brief import global_ptr */
+				#ifdef PA_PACKED_COMPACT
+				using global_uint8_t = typename argo::data_distribution::global_ptr<uint8_t>;
+				#else
 				using global_size_t = typename argo::data_distribution::global_ptr<std::size_t>;
+				#endif
 
 				/**
 				 * @brief pointer to lock field
 				 * @todo should be replaced with an ArgoDSM-specific atomic type
 				 *       to allow efficient synchronization over more backends
 				 */
+				#ifdef PA_PACKED_COMPACT
+				global_uint8_t lastuser;
+				#else
 				global_size_t lastuser;
+				#endif
 
 			public:
 				/**
 				 * @brief construct global tas lock from existing memory in global address space
 				 * @param f pointer to global field for storing lock state
 				 */
+				#ifdef PA_PACKED_COMPACT
+				global_tas_lock(uint8_t* f) : lastuser(global_uint8_t(f)) {
+				#else
 				global_tas_lock(std::size_t* f) : lastuser(global_size_t(f)) {
+				#endif
 					*lastuser = init;
 				};
 
@@ -77,7 +101,13 @@ namespace argo {
 							 *       synchronization at least within this node.
 							 */
 							std::atomic_thread_fence(std::memory_order_acquire);
-						} else {
+							/* note: When the lock were in the initial unlocked state (init)
+							 *       a node-local acquire is enough *only if* the lock cannot
+							 *       return to the initial unlocked state (init) wihtout
+							 *       also causing an argo acquire on all nodes.
+							 */
+						} else /* if (old != init && old != self) */ {
+							//TODO: Trigger node-wide release on previous owner (assuming there is one)
 							backend::acquire();
 						}
 						return true;
