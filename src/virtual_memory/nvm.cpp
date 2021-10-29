@@ -71,7 +71,7 @@ do { \
 namespace argo {
 	namespace virtual_memory {
 		void init_shm() {
-			std::string filename = "/argocache" + std::to_string(getpid());
+			std::string filename = "/argoshm" + std::to_string(getpid());
 			fd_shm = shm_open(filename.c_str(), O_RDWR|O_CREAT, S_IRUSR|S_IWUSR);
 			if(shm_unlink(filename.c_str())) {
 				ERR(msg_main_shm_fail);
@@ -104,7 +104,7 @@ namespace argo {
 				/** @note fsdax: the mounted nvm directory path is given */
 				if (errno == EISDIR) {
 					flags |= O_CREAT|O_DIRECT|O_SYNC;
-					std::string filename = nvm_path + "/argocache" + std::to_string(getpid());
+					std::string filename = nvm_path + "/argonvm" + std::to_string(getpid());
 					fd_nvm = open(filename.c_str(), flags, S_IRUSR|S_IWUSR);
 					if (fd_nvm == -1) {
 						ERR(msg_main_nvm_fail);
