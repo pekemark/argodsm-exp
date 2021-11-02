@@ -306,7 +306,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 			}
 			/* set page to permit reads and map it to the page cache */
 			/** @todo Set cache offset to a variable instead of calculating it here */
-			vm::map_memory(aligned_access_ptr, pagesize*CACHELINE, cacheoffset+offset, PROT_READ);
+			vm::map_memory(aligned_access_ptr, pagesize*CACHELINE, cacheoffset+offset, PROT_READ, vm::memory_type::nvm);
 
 		}
 		else{
@@ -342,7 +342,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 				}
 			}
 			/* set page to permit read/write and map it to the page cache */
-			vm::map_memory(aligned_access_ptr, pagesize*CACHELINE, cacheoffset+offset, PROT_READ|PROT_WRITE);
+			vm::map_memory(aligned_access_ptr, pagesize*CACHELINE, cacheoffset+offset, PROT_READ|PROT_WRITE, vm::memory_type::nvm);
 
 		}
 		sem_post(&ibsem);
@@ -888,7 +888,7 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 
 	current_offset += cacheControlSize;
 	tmpcache=globalData;
-	vm::map_memory(tmpcache, size_of_chunk, current_offset, PROT_READ|PROT_WRITE);
+	vm::map_memory(tmpcache, size_of_chunk, current_offset, PROT_READ|PROT_WRITE, vm::memory_type::nvm);
 
 	current_offset += size_of_chunk;
 	tmpcache=globalSharers;
@@ -979,6 +979,7 @@ void argo_finalize(){
 	}
 	MPI_Comm_free(&workcomm);
 	MPI_Finalize();
+	close(vm::file_descriptor());
 	return;
 }
 

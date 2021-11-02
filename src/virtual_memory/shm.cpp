@@ -85,6 +85,10 @@ namespace argo {
 			return avail;
 		}
 
+		int file_descriptor() {
+			return fd;
+		}
+
 		void* allocate_mappable(std::size_t alignment, std::size_t size) {
 			void* p;
 			auto r = posix_memalign(&p, alignment, size);
@@ -96,7 +100,7 @@ namespace argo {
 			return p;
 		}
 
-		void map_memory(void* addr, std::size_t size, std::size_t offset, int prot) {
+		void map_memory(void* addr, std::size_t size, std::size_t offset, int prot, int smem) {
 			auto p = ::mmap(addr, size, prot, MAP_SHARED|MAP_FIXED, fd, offset);
 			if(p == MAP_FAILED) {
 				std::cerr << msg_mmap_fail << std::endl;
