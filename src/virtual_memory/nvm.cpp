@@ -103,7 +103,7 @@ namespace argo {
 				}
 				/** @note fsdax: the mounted nvm directory path is given */
 				if (errno == EISDIR) {
-					flags |= O_CREAT|O_DIRECT|O_SYNC;
+					flags |= O_CREAT; //|O_DIRECT|O_SYNC; //TODO: temporarily remove some properties when using DRAM as NVM
 					std::string filename = nvm_path + "/argonvm" + std::to_string(getpid());
 					fd_nvm = open(filename.c_str(), flags, S_IRUSR|S_IWUSR);
 					if (fd_nvm == -1) {
@@ -174,7 +174,7 @@ namespace argo {
 		void map_memory(void* addr, std::size_t size, std::size_t offset, int prot, int smem) {
 			auto p = (smem == memory_type::shm)
 				? ::mmap(addr, size, prot, MAP_SHARED|MAP_FIXED                  , fd_shm, offset)
-				: ::mmap(addr, size, prot, MAP_SHARED_VALIDATE|MAP_SYNC|MAP_FIXED, fd_nvm, offset);
+				: ::mmap(addr, size, prot, MAP_SHARED/*_VALIDATE|MAP_SYNC*/|MAP_FIXED, fd_nvm, offset); // TODO: temporarily remove some properties (remove MAP_SYNC and MAP_SHARED_VALIDATE -> MAP_SHARED) when using DRAM as NVM
 			if(p == MAP_FAILED) {
 				ERR(msg_mmap_fail);
 			}

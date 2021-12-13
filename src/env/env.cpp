@@ -61,7 +61,7 @@ namespace {
 	 * @brief default nvm path (if environment variable is unset)
 	 * @see @ref ARGO_NVM_PATH
 	 */
-	const std::string default_nvm_path = "";
+	const std::string default_nvm_path = "/dev/shm"; // TODO: defulting to shared memory (snstead of nothing), assuming there is no nvm
 
 	/**
 	 * @brief environment variable used for requesting memory size
