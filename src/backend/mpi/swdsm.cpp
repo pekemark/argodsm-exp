@@ -272,6 +272,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 
 	pthread_mutex_lock(&cachemutex);
 
+	#if (0) // Disables special treatment of local pages, required for persistence to work // TODO: needs a more elegant solution
 	/* page is local */
 	if(homenode == (getID())){
 		int n;
@@ -349,6 +350,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 		pthread_mutex_unlock(&cachemutex);
 		return;
 	}
+	#endif
 
 	state  = cacheControl[startIndex].state;
 	tag = cacheControl[startIndex].tag;
