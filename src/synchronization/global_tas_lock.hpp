@@ -16,6 +16,13 @@
 
 // #define PA_PACKED_COMPACT
 
+#include "../backend/mpi/swdsm.h"
+/**
+ * @brief		Argo statistics struct
+ * @deprecated 	This should be replaced with an API call
+ */
+extern argo_statistics stats;
+
 namespace argo {
 	namespace globallock {
 		/** @brief a global test-and-set lock */
@@ -109,6 +116,7 @@ namespace argo {
 						} else /* if (old != init && old != self) */ {
 							//TODO: Trigger node-wide release on previous owner (assuming there is one)
 							backend::acquire();
+							stats.locktransfers++;
 						}
 						return true;
 					}

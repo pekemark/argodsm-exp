@@ -89,16 +89,20 @@ typedef struct argo_statisticsStruct
 		double flushtime; 
 		/** @brief Time spent in global barrier */
 		double barriertime; 
-		/** @brief Number of stores */
+		/** @brief Number of stores (i.e., entire cache blocks written back for any reason) */
 		unsigned long stores; 
-		/** @brief Number of loads */
+		/** @brief Number of loads (i.e., cache blocks loaded) */
 		unsigned long loads; 
 		/** @brief Number of barriers executed */
 		unsigned long barriers; 
 		/** @brief Number of writebacks from (full) writebuffer */
 		unsigned long writebacks; 
-		/** @brief Number of locks */
-		int locks;
+		/** @brief Number of locks taken */
+		unsigned long locks;
+		/** @brief Number of locks released */
+		unsigned long unlocks;
+		/** @brief Number of locks transferred (taken from another node) */
+		unsigned long locktransfers;
 		/** @brief Time spent performing selective acquire */
 		double ssitime;
 		/** @brief Time spent performing selective release */
