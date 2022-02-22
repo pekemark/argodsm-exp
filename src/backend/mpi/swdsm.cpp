@@ -120,8 +120,8 @@ unsigned long size_of_chunk;
 static const unsigned int pagesize = 4096;
 /** @brief  Magic value for invalid cacheindices */
 unsigned long GLOBAL_NULL;
-/** @brief  Statistics */
-argo_statistics stats;
+// /** @brief  Statistics */
+// argo_statistics stats;
 
 /*First-Touch policy*/
 /** @brief  Holds the owner and backing offset of a page */
@@ -1129,22 +1129,23 @@ double argo_wtime(){
 }
 
 void clearStatistics(){
-	stats.selfinvtime = 0;
-	stats.loadtime = 0;
-	stats.storetime = 0;
-	stats.flushtime = 0;
-	stats.writebacktime = 0;
-	stats.locktime=0;
-	stats.barriertime = 0;
-	stats.stores = 0;
-	stats.writebacks = 0;
-	stats.loads = 0;
-	stats.barriers = 0;
-	stats.locks = 0;
-	stats.unlocks = 0;
-	stats.locktransfers = 0;
-	stats.ssitime = 0;
-	stats.ssdtime = 0;
+	// stats.selfinvtime = 0;
+	// stats.loadtime = 0;
+	// stats.storetime = 0;
+	// stats.flushtime = 0;
+	// stats.writebacktime = 0;
+	// stats.locktime=0;
+	// stats.barriertime = 0;
+	// stats.stores = 0;
+	// stats.writebacks = 0;
+	// stats.loads = 0;
+	// stats.barriers = 0;
+	// stats.locks = 0;
+	// stats.unlocks = 0;
+	// stats.locktransfers = 0;
+	// stats.ssitime = 0;
+	// stats.ssdtime = 0;
+	stats.clear();
 }
 
 void storepageDIFF(unsigned long index, unsigned long addr){
@@ -1187,22 +1188,25 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 }
 
 void printStatistics(){
-	printf("#####################STATISTICS#########################\n");
-	printf("# PROCESS ID %d \n",workrank);
-	printf("cachesize:%ld,CACHELINE:%ld wbsize:%ld\n",cachesize,CACHELINE,
-			env::write_buffer_size()/CACHELINE);
-	printf("     writebacktime+=(t2-t1): %lf\n",stats.writebacktime);
-	printf("# Storetime : %lf , loadtime :%lf flushtime:%lf, writebacktime: %lf\n",
-		stats.storetime, stats.loadtime, stats.flushtime, stats.writebacktime);
-	printf("Writebacks: %lu\n",stats.writebacks);
-	printf("# SSDtime:%lf, SSItime:%lf\n", stats.ssdtime, stats.ssitime);
-	printf("# Barriertime : %lf, selfinvtime %lf\n",stats.barriertime, stats.selfinvtime);
-	printf("stores:%lu, loads:%lu, barriers:%lu\n",stats.stores,stats.loads,stats.barriers);
-	printf("Locks: %lu\n",stats.locks);
-	printf("Unlocks: %lu\n",stats.unlocks);
-	printf("Lock Transfers: %lu\n",stats.locktransfers);
-	printf("########################################################\n");
-	printf("\n\n");
+	// printf("#####################STATISTICS#########################\n");
+	// printf("# PROCESS ID %d \n",workrank);
+	// printf("cachesize:%ld,CACHELINE:%ld wbsize:%ld\n",cachesize,CACHELINE,
+	// 		env::write_buffer_size()/CACHELINE);
+	// printf("     writebacktime+=(t2-t1): %lf\n",stats.writebacktime);
+	// printf("# Storetime : %lf , loadtime :%lf flushtime:%lf, writebacktime: %lf\n",
+	// 	stats.storetime, stats.loadtime, stats.flushtime, stats.writebacktime);
+	// printf("Writebacks: %lu\n",stats.writebacks);
+	// printf("# SSDtime:%lf, SSItime:%lf\n", stats.ssdtime, stats.ssitime);
+	// printf("# Barriertime : %lf, selfinvtime %lf\n",stats.barriertime, stats.selfinvtime);
+	// printf("stores:%lu, loads:%lu, barriers:%lu\n",stats.stores,stats.loads,stats.barriers);
+	// printf("Locks: %lu\n",stats.locks);
+	// printf("Unlocks: %lu\n",stats.unlocks);
+	// printf("Lock Transfers: %lu\n",stats.locktransfers);
+	// printf("########################################################\n");
+	// printf("\n\n");
+	printf("[N%d] # cachesize:%ld,CACHELINE:%ld wbsize:%ld\n", workrank,
+		cachesize, CACHELINE, env::write_buffer_size()/CACHELINE);
+	stats.print(workrank);
 }
 
 void *argo_get_global_base(){return startAddr;}

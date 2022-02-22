@@ -13,15 +13,9 @@
 #include "../types/types.hpp"
 #include <chrono>
 #include <thread>
+#include "../backend/mpi/statistics.hpp"
 
 // #define PA_PACKED_COMPACT
-
-#include "../backend/mpi/swdsm.h"
-/**
- * @brief		Argo statistics struct
- * @deprecated 	This should be replaced with an API call
- */
-extern argo_statistics stats;
 
 namespace argo {
 	namespace globallock {
