@@ -7,19 +7,19 @@
 struct argo_statistics
 {
 	/** @brief Time spend locking */
-	std::atomic<double> locktime;
+	double locktime;
 	/** @brief Time spent self invalidating */
-	std::atomic<double> selfinvtime; 
+	double selfinvtime; 
 	/** @brief Time spent loading pages */
-	std::atomic<double> loadtime;
+	double loadtime;
 	/** @brief Time spent storing pages */
-	std::atomic<double> storetime; 
+	double storetime; 
 	/** @brief Time spent writing back from the writebuffer */
-	std::atomic<double> writebacktime; 
+	double writebacktime; 
 	/** @brief Time spent flushing the writebuffer */
-	std::atomic<double> flushtime; 
+	double flushtime; 
 	/** @brief Time spent in global barrier */
-	std::atomic<double> barriertime; 
+	double barriertime; 
 	/** @brief Number of stores (i.e., entire cache blocks written back for any reason) */
 	std::atomic<unsigned long> stores; 
 	/** @brief Number of loads (i.e., cache blocks loaded) */
@@ -35,9 +35,9 @@ struct argo_statistics
 	/** @brief Number of locks transferred (taken from another node) */
 	std::atomic<unsigned long> locktransfers;
 	/** @brief Time spent performing selective acquire */
-	std::atomic<double> ssitime;
+	double ssitime;
 	/** @brief Time spent performing selective release */
-	std::atomic<double> ssdtime;
+	double ssdtime;
 
 	/** @brief Resets all variables to zero. */
 	void clear();
