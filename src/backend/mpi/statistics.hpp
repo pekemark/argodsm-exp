@@ -1,8 +1,6 @@
 #ifndef argo_statistics_hpp
 #define argo_statistics_hpp argo_statistics_hpp
 
-#include <atomic>
-
 /** @brief Struct containing statistics */
 struct argo_statistics
 {
