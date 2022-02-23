@@ -21,19 +21,19 @@ struct argo_statistics
 	/** @brief Time spent in global barrier */
 	double barriertime; 
 	/** @brief Number of stores (i.e., entire cache blocks written back for any reason) */
-	std::atomic<unsigned long> stores; 
+	unsigned long stores; 
 	/** @brief Number of loads (i.e., cache blocks loaded) */
-	std::atomic<unsigned long> loads; 
+	unsigned long loads; 
 	/** @brief Number of barriers executed */
-	std::atomic<unsigned long> barriers; 
+	unsigned long barriers; 
 	/** @brief Number of writebacks from (full) writebuffer */
-	std::atomic<unsigned long> writebacks; 
+	unsigned long writebacks; 
 	/** @brief Number of locks taken */
-	std::atomic<unsigned long> locks;
+	unsigned long locks;
 	/** @brief Number of locks released */
-	std::atomic<unsigned long> unlocks;
+	unsigned long unlocks;
 	/** @brief Number of locks transferred (taken from another node) */
-	std::atomic<unsigned long> locktransfers;
+	unsigned long locktransfers;
 	/** @brief Time spent performing selective acquire */
 	double ssitime;
 	/** @brief Time spent performing selective release */
