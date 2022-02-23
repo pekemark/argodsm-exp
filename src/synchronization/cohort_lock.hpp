@@ -14,6 +14,7 @@
 #include "global_tas_lock.hpp"
 #include "intranode/mcs_lock.hpp"
 #include "intranode/ticket_lock.hpp"
+#include "../backend/mpi/statistics.hpp"
 
 #include <vector>
 
@@ -175,6 +176,7 @@ namespace argo {
 						node_lock->unlock();
 					}
 					local_lock[node].unlock();
+					stats.unlocks++;
 				}
 
 				/**
@@ -197,6 +199,7 @@ namespace argo {
 							has_global_lock = true;
 						}
 					}
+					stats.locks++;
 				}
 		};
 	} // namespace globallock
