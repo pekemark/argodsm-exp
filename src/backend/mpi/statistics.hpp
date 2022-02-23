@@ -1,41 +1,43 @@
 #ifndef argo_statistics_hpp
 #define argo_statistics_hpp argo_statistics_hpp
 
+#include <atomic>
+
 /** @brief Struct containing statistics */
 struct argo_statistics
 {
 	/** @brief Time spend locking */
-	double locktime;
+	std::atomic<double> locktime;
 	/** @brief Time spent self invalidating */
-	double selfinvtime; 
+	std::atomic<double> selfinvtime; 
 	/** @brief Time spent loading pages */
-	double loadtime;
+	std::atomic<double> loadtime;
 	/** @brief Time spent storing pages */
-	double storetime; 
+	std::atomic<double> storetime; 
 	/** @brief Time spent writing back from the writebuffer */
-	double writebacktime; 
+	std::atomic<double> writebacktime; 
 	/** @brief Time spent flushing the writebuffer */
-	double flushtime; 
+	std::atomic<double> flushtime; 
 	/** @brief Time spent in global barrier */
-	double barriertime; 
+	std::atomic<double> barriertime; 
 	/** @brief Number of stores (i.e., entire cache blocks written back for any reason) */
-	unsigned long stores; 
+	std::atomic<unsigned long> stores; 
 	/** @brief Number of loads (i.e., cache blocks loaded) */
-	unsigned long loads; 
+	std::atomic<unsigned long> loads; 
 	/** @brief Number of barriers executed */
-	unsigned long barriers; 
+	std::atomic<unsigned long> barriers; 
 	/** @brief Number of writebacks from (full) writebuffer */
-	unsigned long writebacks; 
+	std::atomic<unsigned long> writebacks; 
 	/** @brief Number of locks taken */
-	unsigned long locks;
+	std::atomic<unsigned long> locks;
 	/** @brief Number of locks released */
-	unsigned long unlocks;
+	std::atomic<unsigned long> unlocks;
 	/** @brief Number of locks transferred (taken from another node) */
-	unsigned long locktransfers;
+	std::atomic<unsigned long> locktransfers;
 	/** @brief Time spent performing selective acquire */
-	double ssitime;
+	std::atomic<double> ssitime;
 	/** @brief Time spent performing selective release */
-	double ssdtime;
+	std::atomic<double> ssdtime;
 
 	/** @brief Resets all variables to zero. */
 	void clear();
