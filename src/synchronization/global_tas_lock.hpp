@@ -15,55 +15,59 @@
 #include <thread>
 #include "../backend/mpi/statistics.hpp"
 
-// #define PA_PACKED_COMPACT
-
 namespace argo {
 	namespace globallock {
 		/** @brief a global test-and-set lock */
 		class global_tas_lock {
 			private:
-				/** @brief constant signifying lock is in an initial state and free */
-				#ifdef PA_PACKED_COMPACT
-				static const uint8_t init = UINT8_MAX-1;
-				#else
-				static const std::size_t init = -2;
-				#endif
-				/** @brief constant signifying lock is taken */
-				#ifdef PA_PACKED_COMPACT
-				static const uint8_t locked = UINT8_MAX;
-				#else
-				static const std::size_t locked = -1;
-				#endif
+				class lock_data {
+					public:
+						static const argo::node_id_t init = -1;
+						argo::node_id_t last_user;
+						bool locked;
+						lock_data(bool locked = false, argo::node_id_t last_user = init)
+						: locked(locked), last_user(last_user) {};
+						bool operator==(const lock_data &other) {
+							return
+								this->last_user == other.last_user &&
+								this->locked == other.locked;
+						}
+						bool inline is_locked() { return locked; }
+						bool inline get_last_user() { return last_user; }
+				};
 
-				/** @brief import global_ptr */
-				#ifdef PA_PACKED_COMPACT
-				using global_uint8_t = typename argo::data_distribution::global_ptr<uint8_t>;
-				#else
-				using global_size_t = typename argo::data_distribution::global_ptr<std::size_t>;
-				#endif
+			public:
+				/**
+				 * @brief internally used type for lock field
+				 * @note this type may change without warning,
+				 *       user code must use this type alias
+				 */
+				using internal_field_type = lock_data;
+
+				static_assert(sizeof(internal_field_type) <= 8,
+					"The internal lock field cannot exceed 8 bytes "
+					"due to MPI restrictions for atomics.");
+
+			private:
+				/**
+				 * @brief global_ptr for the internal_filed_type
+				 */
+				using global_lock_type = typename argo::data_distribution::global_ptr<internal_field_type>;
 
 				/**
 				 * @brief pointer to lock field
 				 * @todo should be replaced with an ArgoDSM-specific atomic type
 				 *       to allow efficient synchronization over more backends
 				 */
-				#ifdef PA_PACKED_COMPACT
-				global_uint8_t lastuser;
-				#else
-				global_size_t lastuser;
-				#endif
+				global_lock_type lock_data;
 
 			public:
 				/**
 				 * @brief construct global tas lock from existing memory in global address space
 				 * @param f pointer to global field for storing lock state
 				 */
-				#ifdef PA_PACKED_COMPACT
-				global_tas_lock(uint8_t* f) : lastuser(global_uint8_t(f)) {
-				#else
-				global_tas_lock(std::size_t* f) : lastuser(global_size_t(f)) {
-				#endif
-					*lastuser = init;
+				global_tas_lock(internal_field_type* f) : lock_data(global_lock_type(f)) {
+					*lock_data = internal_field_type(false);
 				};
 
 				/**
@@ -72,10 +76,14 @@ namespace argo {
 				 *         false otherwise
 				 */
 				bool try_lock() {
-					auto old = backend::atomic::exchange(lastuser, locked, atomic::memory_order::relaxed);
-					if(old != locked) {
-						std::size_t self = backend::node_id();
-						if(old == self || old == init) {
+					auto old_data = backend::atomic::load(lock_data, atomic::memory_order::relaxed);
+					if (old_data.is_locked()) return false;
+					std::size_t self = backend::node_id();
+					auto new_data = internal_field_type(true, self);
+					bool success = backend::atomic::compare_exchange(lock_data, old_data, new_data, atomic::memory_order::relaxed);
+					if (success) {
+						if (old_data.get_last_user() == self || old_data.get_last_user() == internal_field_type::init) {
+							// The lock was not previously held by another node.
 							/* note: doing nothing here is only safe because we are using
 							 *       an SC for DRF memory model in ArgoDSM.
 							 *       When changing this to something more strict, e.g.
@@ -107,8 +115,9 @@ namespace argo {
 							 *       return to the initial unlocked state (init) wihtout
 							 *       also causing an argo acquire on all nodes.
 							 */
-						} else /* if (old != init && old != self) */ {
-							//TODO: Trigger node-wide release on previous owner (assuming there is one)
+						} else /* if (old_data.get_last_user() != internal_field_type::init && old_data.get_last_user() != self) */ {
+							// The lock was previously held by another node.
+							// TODO: Trigger node-wide release on previous owner (assuming there is one)
 							backend::acquire();
 							stats.locktransfers++;
 						}
@@ -123,9 +132,10 @@ namespace argo {
 				 * @brief release the lock
 				 */
 				void unlock() {
-					std::size_t self = backend::node_id();
 					backend::release();
-					backend::atomic::store(lastuser, self);
+					std::size_t self = backend::node_id();
+					auto new_data = internal_field_type(false, self);
+					backend::atomic::store(lock_data, new_data);
 				}
 
 				/**
@@ -136,12 +146,6 @@ namespace argo {
 						std::this_thread::yield();
 				}
 
-				/**
-				 * @brief internally used type for lock field
-				 * @note this type may change without warning,
-				 *       user code must use this type alias
-				 */
-				using internal_field_type = std::size_t;
 		};
 	} // namespace globallock
 } // namespace argo
