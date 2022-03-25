@@ -29,6 +29,13 @@ extern MPI_Comm workcomm;
 extern MPI_Win  *globalDataWindow;
 
 /**
+ * @brief Global data slice of the local node
+ * @see swdsm.cpp
+ * @note Only imported here to alieviate a bug with MPI_Compare_and_swap
+ */
+extern char* globalData;
+
+/**
  * @brief MPI window for the first-touch data distribution
  * @see swdsm.cpp
  * @see first_touch_distribution.hpp
@@ -302,7 +309,19 @@ namespace argo {
 				MPI_Datatype t_type = fitting_mpi_int(size);
 				// Perform the store operation
 				MPI_Win_lock(MPI_LOCK_EXCLUSIVE, obj.node(), 0, globalDataWindow[0]);
-				MPI_Compare_and_swap(desired, expected, output_buffer, t_type, obj.node(), obj.offset(), globalDataWindow[0]);
+				/**
+				 * @note This if-case circumvents a bug in multiple OpenMPI versions
+				 * for which MPI_Compare_and_swap segfaults when operating on the
+				 * local node. Should probably be removed eventually.
+				 */
+				if(obj.node() == node_id()) {
+					memcpy(output_buffer,&globalData[obj.offset()],size);
+					if(!memcmp(expected,&globalData[obj.offset()],size)) {
+						memcpy(&globalData[obj.offset()],desired,size);
+					}
+				}else{
+					MPI_Compare_and_swap(desired, expected, output_buffer, t_type, obj.node(), obj.offset(), globalDataWindow[0]);
+				}
 				MPI_Win_unlock(obj.node(), globalDataWindow[0]);
 				// Cleanup
 				sem_post(&ibsem);
