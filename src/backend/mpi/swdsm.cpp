@@ -881,32 +881,35 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	MPI_Barrier(MPI_COMM_WORLD);
 
 	void* tmpcache;
+	std::size_t current_offset = 0;
+	
 	tmpcache=cacheData;
-	vm::map_memory(tmpcache, pagesize*cachesize, 0, PROT_READ|PROT_WRITE);
+	vm::map_memory(tmpcache, pagesize*cachesize, current_offset, PROT_READ|PROT_WRITE);
+	current_offset += pagesize*cachesize;
 
-	std::size_t current_offset = pagesize*cachesize;
 	tmpcache=cacheControl;
 	vm::map_memory(tmpcache, cacheControlSize, current_offset, PROT_READ|PROT_WRITE);
-
 	current_offset += cacheControlSize;
+
 	tmpcache=globalData;
 	vm::map_memory(tmpcache, size_of_chunk, current_offset, PROT_READ|PROT_WRITE, vm::memory_type::nvm);
-
 	current_offset += size_of_chunk;
+
 	tmpcache=globalSharers;
 	vm::map_memory(tmpcache, gwritersize, current_offset, PROT_READ|PROT_WRITE);
-
 	current_offset += gwritersize;
+
 	tmpcache=lockbuffer;
 	vm::map_memory(tmpcache, pagesize, current_offset, PROT_READ|PROT_WRITE);
+	current_offset += pagesize;
 
 	if (dd::is_first_touch_policy()) {
-		current_offset += pagesize;
 		tmpcache=global_owners_dir;
 		vm::map_memory(tmpcache, owners_dir_size_bytes, current_offset, PROT_READ|PROT_WRITE);
 		current_offset += owners_dir_size_bytes;
 		tmpcache=global_offsets_tbl;
 		vm::map_memory(tmpcache, offsets_tbl_size_bytes, current_offset, PROT_READ|PROT_WRITE);
+		current_offset += offsets_tbl_size_bytes;
 	}
 
 	sem_init(&ibsem,0,1);
