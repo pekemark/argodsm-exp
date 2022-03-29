@@ -12,6 +12,7 @@
 #include "data_distribution/global_ptr.hpp"
 #include "swdsm.h"
 #include "write_buffer.hpp"
+#include "persistence.hpp"
 
 namespace dd = argo::data_distribution;
 namespace vm = argo::virtual_memory;
@@ -136,6 +137,9 @@ MPI_Win owners_dir_window;
 MPI_Win offsets_tbl_window;
 /** @brief  Spinlock to avoid "spinning" on the semaphore */
 std::mutex spin_mutex;
+
+/*Persistence*/
+argo::backend::persistence::undo_log<argo::memory_t, pagesize> persistence_log;
 
 namespace {
 	/** @brief constant for invalid ArgoDSM node */
@@ -912,6 +916,8 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 		current_offset += offsets_tbl_size_bytes;
 	}
 
+	current_offset += persistence_log.initialize(current_offset, pagesize);
+
 	sem_init(&ibsem,0,1);
 	sem_init(&globallocksem,0,1);
 
@@ -1160,6 +1166,9 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 	char * copy = (char *)(pagecopy + index*pagesize);
 	char * real = (char *)startAddr+addr;
 	size_t drf_unit = sizeof(char);
+
+	// TODO: add call to log the page
+	persistence_log.record_changes(reinterpret_cast<argo::memory_t>(addr), real, copy);
 
 	if(barwindowsused[homenode] == 0){
 		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, homenode, 0, globalDataWindow[homenode]);
