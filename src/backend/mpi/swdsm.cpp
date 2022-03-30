@@ -139,7 +139,7 @@ MPI_Win offsets_tbl_window;
 std::mutex spin_mutex;
 
 /*Persistence*/
-argo::backend::persistence::undo_log<argo::memory_t, pagesize> persistence_log;
+argo::backend::persistence::undo_log persistence_log;
 
 namespace {
 	/** @brief constant for invalid ArgoDSM node */
@@ -916,7 +916,7 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 		current_offset += offsets_tbl_size_bytes;
 	}
 
-	current_offset += persistence_log.initialize(current_offset, pagesize);
+	current_offset += persistence_log.initialize(current_offset);
 
 	sem_init(&ibsem,0,1);
 	sem_init(&globallocksem,0,1);
