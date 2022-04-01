@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <sys/mman.h>
-//#include <unordered_map>
+#include <unordered_map>
 
 #include "../../synchronization/intranode/ticket_lock.hpp"
 #include "../backend.hpp"
@@ -109,16 +109,28 @@ namespace argo::backend::persistence {
 	}
 
 	void undo_log::record_original(location_t location, char *original_data) {
-		size_t idx = index(location);
+		size_t idx;
+		try {
+			idx = entry_lookup.at(location);
+		} catch (std::out_of_range &e) {
+			idx = next_entry;
+			next_entry = (next_entry + 1) % entries;
+			entry_lookup.erase(d_loc[idx]);
+			entry_lookup[location] = idx;
+		}
 		d_original[idx].copy_data(original_data);
 		d_change[idx].reset();
 		d_loc[idx] = location;
 	}
 
 	void undo_log::record_changes(location_t location, char *modified_data, char *original_data) {
-		size_t idx = index(location);
-		if (d_loc[idx] != location)
+		size_t idx;
+		try {
+			idx = entry_lookup.at(location);
+		} catch (std::out_of_range &e) {
 			record_original(location, original_data);
+			idx = entry_lookup.at(location);
+		}
 		d_change[idx].update(modified_data, original_data);
 	}
 

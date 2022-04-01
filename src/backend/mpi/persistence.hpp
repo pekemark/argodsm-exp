@@ -1,6 +1,8 @@
 #ifndef argo_persistence_hpp
 #define argo_persistence_hpp argo_persistence_hpp
 
+#include <unordered_map>
+
 #include "types/types.hpp"
 
 namespace argo::backend::persistence {
@@ -26,7 +28,8 @@ namespace argo::backend::persistence {
 		durable_change<entry_size, dirty_unit> *d_change;
 		location_t *d_loc;
 
-		static size_t index(location_t location) { return (reinterpret_cast<uintptr_t>(location)/entry_size)%entries; }
+		std::unordered_map<location_t, size_t> entry_lookup;
+		size_t next_entry = 0;
 
 		template<typename T>
 		static size_t durable_alloc(T *&addr, size_t copies, size_t offset);
