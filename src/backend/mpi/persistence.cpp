@@ -179,7 +179,11 @@ namespace argo::backend::persistence {
 		// printf("d_change address: %p\n", d_change);
 		init_offset += durable_alloc(d_location, entries, init_offset);
 		// printf("d_location address: %p\n", d_location);
+		init_offset += durable_alloc(d_group, groups, init_offset);
+		// printf("d_group address: %p\n", d_group);
 		entry_range = new range(entries, 0, nullptr);
+		group_range = new range(groups, 0, nullptr);
+		current_group = groups; // No open group
 		log_lock = new locallock::ticket_lock();
 		return init_offset - offset;
 	}
@@ -189,13 +193,28 @@ namespace argo::backend::persistence {
 		try {
 			idx = entry_lookup.at(location);
 		} catch (std::out_of_range &e) {
-			if (entry_range->is_full()) {
-				size_t clear = entry_range->get_start();
-				entry_lookup.erase(d_location[clear]);
-				entry_range->inc_start();
+			if (entry_range->is_full() || group_range->is_full()) {
+				// commit a group
+				group_range->inc_start();
+				entry_range->inc_start(max_group_size); // Because groups are currently only closed at max size.
+			}
+			if (entry_lookup.size() >= max_group_size) {
+				assert(("Groups should never become bigger than the max size.",
+					entry_lookup.size() == max_group_size));
+				// group reached max size, close it
+				entry_lookup.clear();
+				current_group = groups;
+			}
+			if (current_group == groups) {
+				// No open group, open one
+				current_group = group_range->get_end();
+				group_range->inc_end(); // TODO: should probably occur after copying data
+				d_group[current_group].start = entry_range->get_end();
+				d_group[current_group].end = entry_range->get_end();
 			}
 			idx = entry_range->get_end();
 			entry_range->inc_end();
+			d_group[current_group].end += 1; // TODO: should be more sophisicated
 			entry_lookup[location] = idx;
 		}
 		d_original[idx].copy_data(original_data);

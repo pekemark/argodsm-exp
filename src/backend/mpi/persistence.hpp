@@ -28,6 +28,8 @@ namespace argo::backend::persistence {
 		static const size_t alignment = entry_size; // TODO: Should be imported from a header
 
 		static const size_t entries = 256; // TODO: Should be imported from elsewhere or be part of initialisation
+		static const size_t groups = 64; // TODO: Should be imported from elsewhere or be part of initialisation
+		static const size_t max_group_size = entries/groups;
 
 		durable_original<entry_size> *d_original;
 		durable_change<entry_size, dirty_unit> *d_change;
@@ -35,6 +37,10 @@ namespace argo::backend::persistence {
 
 		std::unordered_map<location_t, size_t> entry_lookup;
 		range *entry_range;
+
+		durable_range *d_group;
+		range *group_range;
+		size_t current_group;
 
 		/** @brief Handling exclusive access for the structure. */
 		locallock::ticket_lock *log_lock;
