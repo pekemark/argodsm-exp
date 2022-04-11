@@ -3,6 +3,7 @@
 
 #include <unordered_map>
 
+#include "../../synchronization/intranode/ticket_lock.hpp"
 #include "types/types.hpp"
 
 namespace argo::backend::persistence {
@@ -34,6 +35,9 @@ namespace argo::backend::persistence {
 
 		std::unordered_map<location_t, size_t> entry_lookup;
 		range *entry_range;
+
+		/** @brief Handling exclusive access for the structure. */
+		locallock::ticket_lock *log_lock;
 
 		template<typename T>
 		static size_t durable_alloc(T *&addr, size_t copies, size_t offset);

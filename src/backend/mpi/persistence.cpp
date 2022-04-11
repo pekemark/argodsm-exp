@@ -2,6 +2,7 @@
 #include <bitset>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <sys/mman.h>
 #include <unordered_map>
 
@@ -179,6 +180,7 @@ namespace argo::backend::persistence {
 		init_offset += durable_alloc(d_location, entries, init_offset);
 		// printf("d_location address: %p\n", d_location);
 		entry_range = new range(entries, 0, nullptr);
+		log_lock = new locallock::ticket_lock();
 		return init_offset - offset;
 	}
 
@@ -202,6 +204,7 @@ namespace argo::backend::persistence {
 	}
 
 	void undo_log::record_changes(location_t location, char *modified_data, char *original_data) {
+		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
 		size_t idx;
 		try {
 			idx = entry_lookup.at(location);
