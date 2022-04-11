@@ -103,8 +103,8 @@ namespace argo::backend::persistence {
 		// printf("d_original address: %p\n", d_original);
 		init_offset += durable_alloc(d_change, entries, init_offset);
 		// printf("d_change address: %p\n", d_change);
-		init_offset += durable_alloc(d_loc, entries, init_offset);
-		// printf("d_loc address: %p\n", d_loc);
+		init_offset += durable_alloc(d_location, entries, init_offset);
+		// printf("d_location address: %p\n", d_location);
 		return init_offset - offset;
 	}
 
@@ -115,12 +115,12 @@ namespace argo::backend::persistence {
 		} catch (std::out_of_range &e) {
 			idx = next_entry;
 			next_entry = (next_entry + 1) % entries;
-			entry_lookup.erase(d_loc[idx]);
+			entry_lookup.erase(d_location[idx]);
 			entry_lookup[location] = idx;
 		}
 		d_original[idx].copy_data(original_data);
 		d_change[idx].reset();
-		d_loc[idx] = location;
+		d_location[idx] = location;
 	}
 
 	void undo_log::record_changes(location_t location, char *modified_data, char *original_data) {
