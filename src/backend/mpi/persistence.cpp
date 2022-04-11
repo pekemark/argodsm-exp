@@ -86,6 +86,79 @@ namespace argo::backend::persistence {
 
 	};
 
+	/** @brief Bookeeping structure to keep track of the state of a circular buffer.
+	 * The internal representation stores enough information to determine
+	 * the endpoints of the buffer and, in extereme cases, whether it is full or empty.
+	 * Other redundant information (such as the maximum size)
+	 * is not stored to minimise memory footprint.
+	 * @note Current implementation allows endpoint indices to be
+	 * betwen [0, 2*size] to differentiate between an empry and full buffer.
+	 */
+	struct durable_range {
+		/** @brief Start index of the range (inclusive) plus multiple of size. */
+		size_t start;
+		/** @brief End index of the group (exclusive) plus multiple of size. */
+		size_t end;
+
+		durable_range(size_t start = 0)
+		: start(start), end(start) {} // When empty, start and end are the same.
+
+		size_t inline get_start(size_t size) { return start % size; }
+		size_t inline get_end(size_t size) { return end % size; }
+
+		bool inline is_empty() { return start == end; }
+		bool inline is_full(size_t size) { return !is_empty() && get_start(size) == get_end(size); }
+
+		size_t get_use(size_t size) {
+			if (is_empty()) return 0;
+			return ((get_end(size) + size) - get_start(size)) % size;
+		}
+
+	};
+
+	class range {
+
+		durable_range idx;
+		size_t size;
+
+		durable_range *durable;
+
+	public:
+
+		range(size_t size, size_t start = 0, durable_range *durable = nullptr)
+		: idx(start), size(size), durable(durable) {
+			if (start >= size)
+				throw std::domain_error("The start index is greater than the size.");
+			if (durable != nullptr) {
+				durable->start = idx.start;
+				durable->end = idx.end;
+			}
+		}
+
+		size_t inline get_start() { return idx.get_start(size); }
+		size_t inline get_end() { return idx.get_end(size); }
+
+		bool inline is_empty() { return idx.is_empty(); }
+		bool inline is_full() { return idx.is_full(size); }
+
+		size_t get_use() { return idx.get_use(size); }
+
+		void inc_start(size_t steps = 1) {
+			// TODO: protect against bad steps
+			idx.start = (idx.start + steps) % (2*size);
+			if (durable != nullptr)
+				durable->start = idx.start;
+		}
+
+		void inc_end(size_t steps = 1) {
+			// TODO: protect against bad steps
+			idx.end = (idx.end + steps) % (2*size);
+			if (durable != nullptr)
+				durable->end = idx.end;
+		}
+
+	};
+
 	template<typename T>
 	size_t undo_log::durable_alloc(T *&addr, size_t copies, size_t offset) {
 		size_t size = align_ceil(copies*sizeof(T), alignment);
@@ -105,6 +178,7 @@ namespace argo::backend::persistence {
 		// printf("d_change address: %p\n", d_change);
 		init_offset += durable_alloc(d_location, entries, init_offset);
 		// printf("d_location address: %p\n", d_location);
+		entry_range = new range(entries, 0, nullptr);
 		return init_offset - offset;
 	}
 
@@ -113,9 +187,13 @@ namespace argo::backend::persistence {
 		try {
 			idx = entry_lookup.at(location);
 		} catch (std::out_of_range &e) {
-			idx = next_entry;
-			next_entry = (next_entry + 1) % entries;
-			entry_lookup.erase(d_location[idx]);
+			if (entry_range->is_full()) {
+				size_t clear = entry_range->get_start();
+				entry_lookup.erase(d_location[clear]);
+				entry_range->inc_start();
+			}
+			idx = entry_range->get_end();
+			entry_range->inc_end();
 			entry_lookup[location] = idx;
 		}
 		d_original[idx].copy_data(original_data);

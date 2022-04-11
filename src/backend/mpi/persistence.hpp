@@ -13,6 +13,10 @@ namespace argo::backend::persistence {
 	template<size_t entry_size, size_t dirty_unit>
 	struct durable_change;
 
+	struct durable_range;
+
+	class range;
+
 	class undo_log {
 
 		using location_t = argo::memory_t;
@@ -29,7 +33,7 @@ namespace argo::backend::persistence {
 		location_t *d_location;
 
 		std::unordered_map<location_t, size_t> entry_lookup;
-		size_t next_entry = 0;
+		range *entry_range;
 
 		template<typename T>
 		static size_t durable_alloc(T *&addr, size_t copies, size_t offset);
