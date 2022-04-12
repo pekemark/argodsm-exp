@@ -182,6 +182,27 @@ namespace argo::backend::persistence {
 		return size;
 	}
 
+	void undo_log::open_group() {
+		if (current_group != nullptr)
+			throw std::logic_error("There is already an open group.");
+		if (group_range->is_full())
+			throw std::logic_error("There are no unused groups."); // TODO: ensure some group is committed
+		current_group = new group<location_t>(
+			entries,
+			entry_range->get_end(), // Start at the next entry
+			&d_group[group_range->get_end()] // Usable as there is at least one free group slot
+		);
+		// PM FENCE
+		group_range->inc_end(); // Include newly reset group in group buffer
+	}
+
+	void undo_log::close_group() {
+		if (current_group == nullptr)
+			throw std::logic_error("There is no open group to close.");
+		closed_groups.push_back(current_group);
+		current_group = nullptr;
+	}
+
 	bool undo_log::try_commit_group() {
 		if (closed_groups.size() == 0) return false; // No closed group to commit
 		// TODO: Check precondition for committing is satisfied
@@ -235,18 +256,11 @@ namespace argo::backend::persistence {
 			assert(("Groups should never become bigger than the max size.",
 				current_group->entry_lookup.size() == max_group_size));
 			// group reached max size, close it
-			closed_groups.push_back(current_group);
-			current_group = nullptr;
+			close_group();
 		}
 		if (current_group == nullptr) {
 			// No open group, open one
-			current_group = new group<location_t>(
-				entries,
-				entry_range->get_end(), // Start at the next entry
-				&d_group[group_range->get_end()] // Usable as there is at least one free group slot
-			);
-			// PM FENCE
-			group_range->inc_end(); // Include newly reset group in group buffer
+			open_group();
 		}
 		// Get next free entry index (at least one free slot has been ensured)
 		size_t idx = entry_range->get_end();

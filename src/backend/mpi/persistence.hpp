@@ -63,6 +63,8 @@ namespace argo::backend::persistence {
 		void record_original(location_t location, char *original_data);
 		void record_changes(location_t location, char *modified_data, char *original_data = nullptr);
 
+		void open_group();
+		void close_group();
 		bool try_commit_group();
 		void commit_group();
 
