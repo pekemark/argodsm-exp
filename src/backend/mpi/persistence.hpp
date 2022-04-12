@@ -22,6 +22,8 @@ namespace argo::backend::persistence {
 	template<typename location_t>
 	struct group;
 
+	struct durable_log;
+
 	class undo_log {
 
 		using location_t = argo::memory_t;
@@ -45,6 +47,8 @@ namespace argo::backend::persistence {
 		range *group_range;
 		std::deque<group<location_t>*> closed_groups;
 		group<location_t> *current_group;
+
+		durable_log *d_log;
 
 		/** @brief Handling exclusive access for the structure. */
 		locallock::ticket_lock *log_lock;

@@ -169,6 +169,10 @@ namespace argo::backend::persistence {
 		: entry_range(entry_buffer_size, entry_buffer_start, d_group) {}
 	};
 
+	struct durable_log {
+		durable_range group_range;
+	};
+
 	template<typename T>
 	size_t undo_log::durable_alloc(T *&addr, size_t copies, size_t offset) {
 		size_t size = align_ceil(copies*sizeof(T), alignment);
@@ -190,8 +194,10 @@ namespace argo::backend::persistence {
 		// printf("d_location address: %p\n", d_location);
 		init_offset += durable_alloc(d_group, groups, init_offset);
 		// printf("d_group address: %p\n", d_group);
+		init_offset += durable_alloc(d_log, 1, init_offset);
+		// printf("d_log address: %p\n", d_log);
 		entry_range = new range(entries, 0, nullptr);
-		group_range = new range(groups, 0, nullptr);
+		group_range = new range(groups, 0, &d_log->group_range);
 		current_group = nullptr; // No open group
 		log_lock = new locallock::ticket_lock();
 		return init_offset - offset;
