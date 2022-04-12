@@ -189,45 +189,52 @@ namespace argo::backend::persistence {
 	}
 
 	void undo_log::record_original(location_t location, char *original_data) {
-		size_t idx;
-		try {
-			idx = entry_lookup.at(location);
-		} catch (std::out_of_range &e) {
-			if (entry_range->is_full() || group_range->is_full()) {
-				// commit a group
-				group_range->inc_start();
-				entry_range->inc_start(max_group_size); // Because groups are currently only closed at max size.
-			}
-			if (entry_lookup.size() >= max_group_size) {
-				assert(("Groups should never become bigger than the max size.",
-					entry_lookup.size() == max_group_size));
-				// group reached max size, close it
-				entry_lookup.clear();
-				current_group = groups;
-			}
-			if (current_group == groups) {
-				// No open group, open one
-				current_group = group_range->get_end();
-				group_range->inc_end(); // TODO: should probably occur after copying data
-				d_group[current_group].start = entry_range->get_end();
-				d_group[current_group].end = entry_range->get_end();
-			}
-			idx = entry_range->get_end();
-			entry_range->inc_end();
-			d_group[current_group].end += 1; // TODO: should be more sophisicated
-			entry_lookup[location] = idx;
+		assert(("The location shouldn't be in the open group.",
+			current_group == groups || entry_lookup.count(location) == 0));
+		if (entry_range->is_full() || group_range->is_full()) {
+			// commit a group
+			// TODO: handle case when all entries are used by single (open) group
+			group_range->inc_start();
+			entry_range->inc_start(max_group_size); // Because groups are currently only closed at max size.
 		}
+		if (entry_lookup.size() >= max_group_size) {
+			assert(("Groups should never become bigger than the max size.",
+				entry_lookup.size() == max_group_size));
+			// group reached max size, close it
+			entry_lookup.clear();
+			current_group = groups;
+		}
+		if (current_group == groups) {
+			// No open group, open one
+			current_group = group_range->get_end(); // Usable as there is at least one free group slot
+			d_group[current_group].start = entry_range->get_end(); // Start at the next entry
+			d_group[current_group].end = entry_range->get_end(); // Initially, zero size
+			// PM FENCE
+			group_range->inc_end(); // Include newly reset group in group buffer
+		}
+		// Get next free entry index (at least one free slot has been ensured)
+		size_t idx = entry_range->get_end();
+		// Persistently update group data
 		d_original[idx].copy_data(original_data);
 		d_change[idx].reset();
 		d_location[idx] = location;
+		// PM FENCE
+		// Persistently expand group to include new data
+		d_group[current_group].end += 1; // TODO: should be more sophisicated
+		// Adjust volatile structures
+		entry_lookup[location] = idx;
+		entry_range->inc_end();
 	}
 
 	void undo_log::record_changes(location_t location, char *modified_data, char *original_data) {
 		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
 		size_t idx;
 		try {
+			if (current_group == groups)
+				throw std::out_of_range("No open group to in which to record changes.");
 			idx = entry_lookup.at(location);
 		} catch (std::out_of_range &e) {
+			// Either due to lack of current group or the entry is new.
 			record_original(location, original_data);
 			idx = entry_lookup.at(location);
 		}
