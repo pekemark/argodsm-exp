@@ -2,6 +2,7 @@
 #include <bitset>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <mutex>
 #include <sys/mman.h>
 #include <unordered_map>
@@ -201,15 +202,17 @@ namespace argo::backend::persistence {
 			current_group == nullptr || current_group->entry_lookup.count(location) == 0));
 		if (entry_range->is_full() || group_range->is_full()) {
 			// commit a group
-			// TODO: handle case when all entries are used by single (open) group
+			// TODO: handle case when all entries are used by single (open) group, i.e. when there is no closed group
+			size_t commit_entries = closed_groups.front()->entry_range.get_use();
+			closed_groups.pop_front();
 			group_range->inc_start();
-			entry_range->inc_start(max_group_size); // Because groups are currently only closed at max size.
+			entry_range->inc_start(commit_entries);
 		}
 		if (current_group != nullptr && current_group->entry_lookup.size() >= max_group_size) {
 			assert(("Groups should never become bigger than the max size.",
 				current_group->entry_lookup.size() == max_group_size));
 			// group reached max size, close it
-			delete current_group; // TODO: Put in a closed queue instead
+			closed_groups.push_back(current_group);
 			current_group = nullptr;
 		}
 		if (current_group == nullptr) {

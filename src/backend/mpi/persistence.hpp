@@ -1,6 +1,7 @@
 #ifndef argo_persistence_hpp
 #define argo_persistence_hpp argo_persistence_hpp
 
+#include <deque>
 #include <unordered_map>
 
 #include "../../synchronization/intranode/ticket_lock.hpp"
@@ -42,6 +43,7 @@ namespace argo::backend::persistence {
 
 		durable_range *d_group;
 		range *group_range;
+		std::deque<group<location_t>*> closed_groups;
 		group<location_t> *current_group;
 
 		/** @brief Handling exclusive access for the structure. */
