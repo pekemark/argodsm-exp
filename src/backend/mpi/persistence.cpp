@@ -182,6 +182,26 @@ namespace argo::backend::persistence {
 		return size;
 	}
 
+	bool undo_log::try_commit_group() {
+		if (closed_groups.size() == 0) return false; // No closed group to commit
+		// TODO: Check precondition for committing is satisfied
+		// (Currently there are none)
+		group<location_t> *commit_group = closed_groups.front(); // Get pointer to group to commit
+		closed_groups.pop_front(); // Remove the group from the volatile queue
+		group_range->inc_start(); // Durable commit of the group
+		// Now, free volatile references
+		entry_range->inc_start(commit_group->entry_range.get_use());
+		delete commit_group;
+		return true;
+	}
+
+	void undo_log::commit_group() {
+		if (!try_commit_group())
+			throw std::logic_error("Failed to commit group.");
+		// TODO: requires smarter implementation that waits until commit is possible.
+		// printf("Comitted a group.\n");
+	}
+
 	size_t undo_log::initialize(size_t offset) {
 		static_assert(sizeof(durable_original<entry_size>) == entry_size,
 			"The durable_original size doesn't match the entry_size.");
@@ -209,11 +229,7 @@ namespace argo::backend::persistence {
 		if (entry_range->is_full() || group_range->is_full()) {
 			// commit a group
 			// TODO: handle case when all entries are used by single (open) group, i.e. when there is no closed group
-			group<location_t> *commit_group = closed_groups.front();
-			closed_groups.pop_front();
-			group_range->inc_start();
-			entry_range->inc_start(commit_group->entry_range.get_use());
-			delete commit_group;
+			commit_group();
 		}
 		if (current_group != nullptr && current_group->entry_lookup.size() >= max_group_size) {
 			assert(("Groups should never become bigger than the max size.",
