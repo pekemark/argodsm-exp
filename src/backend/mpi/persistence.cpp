@@ -160,6 +160,13 @@ namespace argo::backend::persistence {
 
 	};
 
+	template<typename location_t>
+	struct group {
+		range entry_range;
+		group(size_t entry_buffer_size, size_t entry_buffer_start, durable_range *d_group)
+		: entry_range(entry_buffer_size, entry_buffer_start, d_group) {}
+	};
+
 	template<typename T>
 	size_t undo_log::durable_alloc(T *&addr, size_t copies, size_t offset) {
 		size_t size = align_ceil(copies*sizeof(T), alignment);
@@ -183,14 +190,14 @@ namespace argo::backend::persistence {
 		// printf("d_group address: %p\n", d_group);
 		entry_range = new range(entries, 0, nullptr);
 		group_range = new range(groups, 0, nullptr);
-		current_group = groups; // No open group
+		current_group = nullptr; // No open group
 		log_lock = new locallock::ticket_lock();
 		return init_offset - offset;
 	}
 
 	void undo_log::record_original(location_t location, char *original_data) {
 		assert(("The location shouldn't be in the open group.",
-			current_group == groups || entry_lookup.count(location) == 0));
+			current_group == nullptr || entry_lookup.count(location) == 0));
 		if (entry_range->is_full() || group_range->is_full()) {
 			// commit a group
 			// TODO: handle case when all entries are used by single (open) group
@@ -202,25 +209,30 @@ namespace argo::backend::persistence {
 				entry_lookup.size() == max_group_size));
 			// group reached max size, close it
 			entry_lookup.clear();
-			current_group = groups;
+			delete current_group; // TODO: Put in a closed queue instead
+			current_group = nullptr;
 		}
-		if (current_group == groups) {
+		if (current_group == nullptr) {
 			// No open group, open one
-			current_group = group_range->get_end(); // Usable as there is at least one free group slot
-			d_group[current_group].start = entry_range->get_end(); // Start at the next entry
-			d_group[current_group].end = entry_range->get_end(); // Initially, zero size
+			current_group = new group<location_t>(
+				entries,
+				entry_range->get_end(), // Start at the next entry
+				&d_group[group_range->get_end()] // Usable as there is at least one free group slot
+			);
 			// PM FENCE
 			group_range->inc_end(); // Include newly reset group in group buffer
 		}
 		// Get next free entry index (at least one free slot has been ensured)
 		size_t idx = entry_range->get_end();
+		assert(("The end of the global entry range should match that of the current group.",
+			idx == current_group->entry_range.get_end()));
 		// Persistently update group data
 		d_original[idx].copy_data(original_data);
 		d_change[idx].reset();
 		d_location[idx] = location;
 		// PM FENCE
 		// Persistently expand group to include new data
-		d_group[current_group].end += 1; // TODO: should be more sophisicated
+		current_group->entry_range.inc_end();
 		// Adjust volatile structures
 		entry_lookup[location] = idx;
 		entry_range->inc_end();
@@ -230,7 +242,7 @@ namespace argo::backend::persistence {
 		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
 		size_t idx;
 		try {
-			if (current_group == groups)
+			if (current_group == nullptr)
 				throw std::out_of_range("No open group to in which to record changes.");
 			idx = entry_lookup.at(location);
 		} catch (std::out_of_range &e) {
