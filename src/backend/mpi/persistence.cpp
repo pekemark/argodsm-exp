@@ -209,10 +209,11 @@ namespace argo::backend::persistence {
 		if (entry_range->is_full() || group_range->is_full()) {
 			// commit a group
 			// TODO: handle case when all entries are used by single (open) group, i.e. when there is no closed group
-			size_t commit_entries = closed_groups.front()->entry_range.get_use();
+			group<location_t> *commit_group = closed_groups.front();
 			closed_groups.pop_front();
 			group_range->inc_start();
-			entry_range->inc_start(commit_entries);
+			entry_range->inc_start(commit_group->entry_range.get_use());
+			delete commit_group;
 		}
 		if (current_group != nullptr && current_group->entry_lookup.size() >= max_group_size) {
 			assert(("Groups should never become bigger than the max size.",
