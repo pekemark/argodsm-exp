@@ -38,7 +38,6 @@ namespace argo::backend::persistence {
 		durable_change<entry_size, dirty_unit> *d_change;
 		location_t *d_location;
 
-		std::unordered_map<location_t, size_t> entry_lookup;
 		range *entry_range;
 
 		durable_range *d_group;

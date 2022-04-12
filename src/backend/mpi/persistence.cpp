@@ -162,6 +162,7 @@ namespace argo::backend::persistence {
 
 	template<typename location_t>
 	struct group {
+		std::unordered_map<location_t, size_t> entry_lookup;
 		range entry_range;
 		group(size_t entry_buffer_size, size_t entry_buffer_start, durable_range *d_group)
 		: entry_range(entry_buffer_size, entry_buffer_start, d_group) {}
@@ -197,18 +198,17 @@ namespace argo::backend::persistence {
 
 	void undo_log::record_original(location_t location, char *original_data) {
 		assert(("The location shouldn't be in the open group.",
-			current_group == nullptr || entry_lookup.count(location) == 0));
+			current_group == nullptr || current_group->entry_lookup.count(location) == 0));
 		if (entry_range->is_full() || group_range->is_full()) {
 			// commit a group
 			// TODO: handle case when all entries are used by single (open) group
 			group_range->inc_start();
 			entry_range->inc_start(max_group_size); // Because groups are currently only closed at max size.
 		}
-		if (entry_lookup.size() >= max_group_size) {
+		if (current_group != nullptr && current_group->entry_lookup.size() >= max_group_size) {
 			assert(("Groups should never become bigger than the max size.",
-				entry_lookup.size() == max_group_size));
+				current_group->entry_lookup.size() == max_group_size));
 			// group reached max size, close it
-			entry_lookup.clear();
 			delete current_group; // TODO: Put in a closed queue instead
 			current_group = nullptr;
 		}
@@ -234,7 +234,7 @@ namespace argo::backend::persistence {
 		// Persistently expand group to include new data
 		current_group->entry_range.inc_end();
 		// Adjust volatile structures
-		entry_lookup[location] = idx;
+		current_group->entry_lookup[location] = idx;
 		entry_range->inc_end();
 	}
 
@@ -244,11 +244,11 @@ namespace argo::backend::persistence {
 		try {
 			if (current_group == nullptr)
 				throw std::out_of_range("No open group to in which to record changes.");
-			idx = entry_lookup.at(location);
+			idx = current_group->entry_lookup.at(location);
 		} catch (std::out_of_range &e) {
 			// Either due to lack of current group or the entry is new.
 			record_original(location, original_data);
-			idx = entry_lookup.at(location);
+			idx = current_group->entry_lookup.at(location);
 		}
 		d_change[idx].update(modified_data, original_data);
 	}
