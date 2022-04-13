@@ -273,13 +273,15 @@ namespace argo::backend::persistence {
 	void undo_log::record_original(location_t location, char *original_data) {
 		assert(("The location shouldn't be in the open group.",
 			current_group == nullptr || current_group->entry_lookup.count(location) == 0));
-		ensure_available_entry();
+		// Close group if exceedign limits (TODO: temporary solution, closing a group will require an APB)
 		if (current_group != nullptr && current_group->entry_lookup.size() >= max_group_size) {
 			assert(("Groups should never become bigger than the max size.",
 				current_group->entry_lookup.size() == max_group_size));
 			// group reached max size, close it
 			close_group();
 		}
+		// Ensure available resources
+		ensure_available_entry();
 		ensure_open_group();
 		// Get next free entry index (at least one free slot has been ensured)
 		size_t idx = entry_range->get_end();
