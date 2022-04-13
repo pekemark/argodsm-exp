@@ -33,9 +33,9 @@ namespace argo::backend::persistence {
 
 		static const size_t alignment = entry_size; // TODO: Should be imported from a header
 
-		static const size_t entries = 256; // TODO: Should be imported from elsewhere or be part of initialisation
+		static const size_t entries = 2048; // TODO: Should be imported from elsewhere or be part of initialisation
 		static const size_t groups = 64; // TODO: Should be imported from elsewhere or be part of initialisation
-		static const size_t max_group_size = entries/groups;
+		static const size_t max_group_size = entries*0.8; // TODO: Should be clear this will be a soft limit, also should be configurable
 
 		durable_original<entry_size> *d_original;
 		durable_change<entry_size, dirty_unit> *d_change;
