@@ -253,6 +253,23 @@ namespace argo::backend::persistence {
 		}
 	}
 
+	void undo_log::ensure_available_group() {
+		if (group_range->is_full()) {
+			// TODO: handle case when only one group exists
+			if (closed_groups.size() == 0)
+				throw std::logic_error("There is only a single group and it is open.");
+			commit_group();
+		}
+	}
+
+	void undo_log::ensure_open_group() {
+		if (current_group == nullptr) {
+			// No open group, open one
+			ensure_available_group();
+			open_group();
+		}
+	}
+
 	void undo_log::record_original(location_t location, char *original_data) {
 		assert(("The location shouldn't be in the open group.",
 			current_group == nullptr || current_group->entry_lookup.count(location) == 0));
@@ -262,17 +279,8 @@ namespace argo::backend::persistence {
 				current_group->entry_lookup.size() == max_group_size));
 			// group reached max size, close it
 			close_group();
-			if (group_range->is_full()) {
-				// TODO: handle case when only one group exists
-				assert(("Just closed a group, there must be some that can be committed.",
-					closed_groups.size() > 0));
-				commit_group();
-			}
 		}
-		if (current_group == nullptr) {
-			// No open group, open one
-			open_group();
-		}
+		ensure_open_group();
 		// Get next free entry index (at least one free slot has been ensured)
 		size_t idx = entry_range->get_end();
 		assert(("The end of the global entry range should match that of the current group.",
