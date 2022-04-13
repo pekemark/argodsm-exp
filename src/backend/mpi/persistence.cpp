@@ -244,9 +244,19 @@ namespace argo::backend::persistence {
 		return init_offset - offset;
 	}
 
+	void undo_log::ensure_available_entry() {
+		while (entry_range->is_full()) { // While to account for "empty groups"
+			// TODO: handle case when all entries are used by single (open) group, i.e. when there is no closed group
+			if (closed_groups.size() == 0)
+				throw std::logic_error("The open group has used all log entries.");
+			commit_group();
+		}
+	}
+
 	void undo_log::record_original(location_t location, char *original_data) {
 		assert(("The location shouldn't be in the open group.",
 			current_group == nullptr || current_group->entry_lookup.count(location) == 0));
+		ensure_available_entry();
 		if (current_group != nullptr && current_group->entry_lookup.size() >= max_group_size) {
 			assert(("Groups should never become bigger than the max size.",
 				current_group->entry_lookup.size() == max_group_size));
@@ -258,12 +268,6 @@ namespace argo::backend::persistence {
 					closed_groups.size() > 0));
 				commit_group();
 			}
-		}
-		while (entry_range->is_full()) { // While to account for "empty groups"
-			// TODO: handle case when all entries are used by single (open) group, i.e. when there is no closed group
-			if (closed_groups.size() == 0)
-				throw std::logic_error("The open group has used all log entries.");
-			commit_group();
 		}
 		if (current_group == nullptr) {
 			// No open group, open one

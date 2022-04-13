@@ -61,6 +61,8 @@ namespace argo::backend::persistence {
 		bool try_commit_group();
 		void commit_group();
 
+		void ensure_available_entry();
+
 		void record_original(location_t location, char *original_data);
 
 	public:
