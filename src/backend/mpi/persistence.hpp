@@ -56,17 +56,18 @@ namespace argo::backend::persistence {
 		template<typename T>
 		static size_t durable_alloc(T *&addr, size_t copies, size_t offset);
 
-	public:
-
-		size_t initialize(size_t offset);
-
-		void record_original(location_t location, char *original_data);
-		void record_changes(location_t location, char *modified_data, char *original_data = nullptr);
-
 		void open_group();
 		void close_group();
 		bool try_commit_group();
 		void commit_group();
+
+		void record_original(location_t location, char *original_data);
+
+	public:
+
+		size_t initialize(size_t offset);
+
+		void record_changes(location_t location, char *modified_data, char *original_data);
 
 	};
 
