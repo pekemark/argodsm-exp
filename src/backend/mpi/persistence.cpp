@@ -13,6 +13,10 @@
 
 #include "persistence.hpp"
 
+// argo::backend::persistence::undo_log persistence_log; // Currently declared in swdsm.cpp
+argo::backend::persistence::apb_arbiter persistence_arbiter(&persistence_log);
+argo::backend::persistence::apb_arbiter::registry persistence_registry(&persistence_arbiter);
+
 namespace argo::backend::persistence {
 
 	template<typename T>
@@ -274,11 +278,9 @@ namespace argo::backend::persistence {
 		assert(("The location shouldn't be in the open group.",
 			current_group == nullptr || current_group->entry_lookup.count(location) == 0));
 		// Close group if exceedign limits (TODO: temporary solution, closing a group will require an APB)
-		if (current_group != nullptr && current_group->entry_lookup.size() >= max_group_size) {
-			assert(("Groups should never become bigger than the max size.",
-				current_group->entry_lookup.size() == max_group_size));
-			// group reached max size, close it
-			close_group();
+		if (current_group != nullptr && current_group->entry_lookup.size() >= group_size_limit) {
+			// group reached size limit, close it
+			persistence_arbiter.request_apb();
 		}
 		// Ensure available resources
 		ensure_available_entry();
@@ -312,6 +314,20 @@ namespace argo::backend::persistence {
 			idx = current_group->entry_lookup.at(location);
 		}
 		d_change[idx].update(modified_data, original_data);
+	}
+
+	void undo_log::freeze() {
+		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
+		if (current_group != nullptr)
+			close_group();
+	}
+
+	void undo_log::commit() {
+		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
+		if (current_group != nullptr)
+			close_group();
+		while (!closed_groups.empty())
+			commit_group();
 	}
 
 }
