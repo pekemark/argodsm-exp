@@ -12,6 +12,8 @@
 
 #include "gtest/gtest.h"
 
+#include "backend/mpi/persistence.hpp"
+
 /** @brief Global pointer to char */
 using global_char = typename argo::data_distribution::global_ptr<char>;
 /** @brief Global pointer to double */
@@ -413,10 +415,13 @@ TEST_F(backendTest, selectiveArray) {
 	std::chrono::system_clock::time_point max_time =
 		std::chrono::system_clock::now() + deadlock_threshold;
 
+	auto ptrack = persistence_arbiter.create_tracker();
+
 	// Initialize
 	if(argo::node_id() == 0){
 		for(std::size_t i=0; i<array_size; i++){
 			array[i] = 0;
+			ptrack->join_apb();
 		}
 	}
 	argo::barrier();
@@ -425,6 +430,7 @@ TEST_F(backendTest, selectiveArray) {
 	if(argo::node_id() == 0){
 		for(std::size_t i=0; i<array_size; i++){
 			array[i] = i_const;
+			ptrack->join_apb(); // TODO: This kind of breaks the test, since it may perform a non-selective release.
 		}
 		argo::backend::selective_release(array, array_size*sizeof(int));
 		*flag = 1;
@@ -456,6 +462,7 @@ TEST_F(backendTest, selectiveArray) {
 	ASSERT_EQ(count, expected);
 
 	// Clean up
+	delete ptrack;
 	argo::codelete_array(array);
 }
 
@@ -470,10 +477,13 @@ TEST_F(backendTest, selectiveUnaligned) {
 	std::chrono::system_clock::time_point max_time =
 		std::chrono::system_clock::now() + deadlock_threshold;
 
+	auto ptrack = persistence_arbiter.create_tracker();
+
 	// Initialize
 	if(argo::node_id() == 0){
 		for(std::size_t i=0; i<array_size; i++){
 			array[i] = 0;
+			ptrack->join_apb();
 		}
 	}
 	argo::barrier();
@@ -483,6 +493,7 @@ TEST_F(backendTest, selectiveUnaligned) {
 		// Write an unaligned chunk crossing a (remote node) boundary
 		for(std::size_t i=ua_chunk_size*7231; i<ua_chunk_size*7233; i++){
 			array[i] = i_const;
+			ptrack->join_apb(); // TODO: This kind of breaks the test, since it may perform a non-selective release.
 		}
 		argo::backend::selective_release(&array[ua_chunk_size*7231],
 				(ua_chunk_size*2)*sizeof(int));
@@ -518,6 +529,7 @@ TEST_F(backendTest, selectiveUnaligned) {
 	ASSERT_EQ(count, expected);
 
 	// Clean up
+	delete ptrack;
 	argo::codelete_array(array);
 }
 
@@ -535,10 +547,13 @@ TEST_F(backendTest, writeBufferLoad) {
 	std::mt19937 rng(rd());
 	std::uniform_int_distribution<int> dist(0,array_size-1);
 
+	auto ptrack = persistence_arbiter.create_tracker();
+
 	// Initialize write buffer
 	if(argo::node_id() == 0){
 		for(std::size_t i=0; i<array_size; i++){
 			array[i] = 0;
+			ptrack->join_apb();
 		}
 	}
 	argo::barrier();
@@ -548,6 +563,7 @@ TEST_F(backendTest, writeBufferLoad) {
 		if(i == argo::node_id()){
 			for(std::size_t j=0; j<num_writes; j++){
 				array[dist(rng)]+=1;
+				ptrack->join_apb();
 			}
 		}
 		argo::barrier();
@@ -563,6 +579,7 @@ TEST_F(backendTest, writeBufferLoad) {
 		ASSERT_EQ(count, expected);
 	}
 	// Clean up
+	delete ptrack;
 	argo::codelete_array(array);
 }
 
