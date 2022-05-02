@@ -282,7 +282,6 @@ namespace argo::backend::persistence {
 			 * @note Will stall until no APB is in progress.
 			 */
 			void join_apb() {
-				printf("join apb\n");
 				if (prohibiting)
 					if (arbiter->apb_requested) {
 						arbiter->allow_apb();
