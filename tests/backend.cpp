@@ -63,18 +63,18 @@ class backendTest : public testing::Test, public ::testing::WithParamInterface<i
 TEST_F(backendTest, atomicXchgAll) {
 	global_char _c(argo::conew_<char>(0));
 	argo::backend::atomic::exchange(_c, c_const);
-	ASSERT_EQ(c_const, *_c);
+	ASSERT_EQ(c_const, argo::backend::atomic::load(_c));
 
 	global_int _i(argo::conew_<int>(0));
 	argo::backend::atomic::exchange(_i, i_const);
-	ASSERT_EQ(i_const, *_i);
+	ASSERT_EQ(i_const, argo::backend::atomic::load(_i));
 	global_uint _j(argo::conew_<unsigned>(0));
 	argo::backend::atomic::exchange(_j, j_const);
-	ASSERT_EQ(j_const, *_j);
+	ASSERT_EQ(j_const, argo::backend::atomic::load(_j));
 
 	global_double _d(argo::conew_<double>(0));
 	argo::backend::atomic::exchange(_d, d_const);
-	ASSERT_EQ(d_const, *_d);
+	ASSERT_EQ(d_const, argo::backend::atomic::load(_d));
 }
 
 /**
@@ -87,30 +87,30 @@ TEST_F(backendTest, atomicXchgOne) {
 	if (argo::backend::node_id() == 0)
 		argo::backend::atomic::exchange(_c, c_const);
 	argo::backend::barrier();
-	ASSERT_EQ(c_const, *_c);
+	ASSERT_EQ(c_const, argo::backend::atomic::load(_c));
 
 	global_int _i(argo::conew_<int>());
 	if (argo::backend::node_id() == 0)
 		argo::backend::atomic::exchange(_i, i_const);
 	argo::backend::barrier();
-	ASSERT_EQ(i_const, *_i);
+	ASSERT_EQ(i_const, argo::backend::atomic::load(_i));
 	global_uint _j(argo::conew_<unsigned>());
 	if (argo::backend::node_id() == 0)
 		argo::backend::atomic::exchange(_j, j_const);
 	argo::backend::barrier();
-	ASSERT_EQ(j_const, *_j);
+	ASSERT_EQ(j_const, argo::backend::atomic::load(_j));
 	argo::backend::barrier();
 	// The following test is here to test implicit type conversions
 	if (argo::backend::node_id() == 0)
 		argo::backend::atomic::exchange(_j, i_const);
 	argo::backend::barrier();
-	ASSERT_EQ(static_cast<unsigned>(i_const), *_j);
+	ASSERT_EQ(static_cast<unsigned>(i_const), argo::backend::atomic::load(_j));
 
 	global_double _d(argo::conew_<double>());
 	if (argo::backend::node_id() == 0)
 		argo::backend::atomic::exchange(_d, d_const);
 	argo::backend::barrier();
-	ASSERT_EQ(d_const, *_d);
+	ASSERT_EQ(d_const, argo::backend::atomic::load(_d));
 }
 
 /**
@@ -121,30 +121,30 @@ TEST_F(backendTest, storeOne) {
 	if (argo::backend::node_id() == 0)
 		argo::backend::atomic::store(_c, c_const);
 	argo::backend::barrier();
-	ASSERT_EQ(c_const, *_c);
+	ASSERT_EQ(c_const, argo::backend::atomic::load(_c));
 
 	global_int _i(argo::conew_<int>());
 	if (argo::backend::node_id() == 0)
 		argo::backend::atomic::store(_i, i_const);
 	argo::backend::barrier();
-	ASSERT_EQ(i_const, *_i);
+	ASSERT_EQ(i_const, argo::backend::atomic::load(_i));
 	global_uint _j(argo::conew_<unsigned>());
 	if (argo::backend::node_id() == 0)
 		argo::backend::atomic::store(_j, j_const);
 	argo::backend::barrier();
-	ASSERT_EQ(j_const, *_j);
+	ASSERT_EQ(j_const, argo::backend::atomic::load(_j));
 	argo::backend::barrier();
 	// The following test is here to test implicit type conversions
 	if (argo::backend::node_id() == 0)
 		argo::backend::atomic::store(_j, i_const);
 	argo::backend::barrier();
-	ASSERT_EQ(static_cast<unsigned>(i_const), *_j);
+	ASSERT_EQ(static_cast<unsigned>(i_const), argo::backend::atomic::load(_j));
 
 	global_double _d(argo::conew_<double>());
 	if (argo::backend::node_id() == 0)
 		argo::backend::atomic::store(_d, d_const);
 	argo::backend::barrier();
-	ASSERT_EQ(d_const, *_d);
+	ASSERT_EQ(d_const, argo::backend::atomic::load(_d));
 }
 
 /**
@@ -162,7 +162,7 @@ TEST_F(backendTest, loadOne) {
 		std::chrono::system_clock::now() + deadlock_threshold;
 	while(argo::backend::atomic::load(_c) != c_const)
 		ASSERT_LT(std::chrono::system_clock::now(), max_time);
-	ASSERT_EQ(c_const, *_c);
+	ASSERT_EQ(c_const, argo::backend::atomic::load(_c));
 
 	global_int _i(argo::conew_<int>());
 	if (argo::backend::node_id() == 0)
@@ -170,14 +170,14 @@ TEST_F(backendTest, loadOne) {
 	max_time = std::chrono::system_clock::now() + deadlock_threshold;
 	while(argo::backend::atomic::load(_i) != i_const)
 		ASSERT_LT(std::chrono::system_clock::now(), max_time);
-	ASSERT_EQ(i_const, *_i);
+	ASSERT_EQ(i_const, argo::backend::atomic::load(_i));
 	global_uint _j(argo::conew_<unsigned>());
 	if (argo::backend::node_id() == 0)
 		argo::backend::atomic::store(_j, j_const);
 	max_time = std::chrono::system_clock::now() + deadlock_threshold;
 	while(argo::backend::atomic::load(_j) != j_const)
 		ASSERT_LT(std::chrono::system_clock::now(), max_time);
-	ASSERT_EQ(j_const, *_j);
+	ASSERT_EQ(j_const, argo::backend::atomic::load(_j));
 
 	global_double _d(argo::conew_<double>());
 	if (argo::backend::node_id() == 0)
@@ -185,7 +185,7 @@ TEST_F(backendTest, loadOne) {
 	max_time = std::chrono::system_clock::now() + deadlock_threshold;
 	while(argo::backend::atomic::load(_d) != d_const)
 		ASSERT_LT(std::chrono::system_clock::now(), max_time);
-	ASSERT_EQ(d_const, *_d);
+	ASSERT_EQ(d_const, argo::backend::atomic::load(_d));
 }
 
 /**
@@ -239,17 +239,19 @@ TEST_F(backendTest, atomicXchgVisibility) {
 	int me = argo::node_id();
 	int next = (me + 1) % argo::number_of_nodes();
 
+	global_int next_flag(&flag[next]);
+	global_int my_flag(&flag[me]);
+
 	// Initialize
 	shared_data[me] = data_unset;
-	flag[me] = flag_unset;
+	argo::backend::atomic::store(my_flag, flag_unset, argo::atomic::memory_order::relaxed);
 
 	argo::barrier();
 
 	// Send some data into the next node and set their flag as well
 	shared_data[next] = data_set + next;
-	global_int _nf(&flag[next]);
 	rc = argo::backend::atomic::exchange(
-		_nf, flag_set, argo::atomic::memory_order::release);
+		next_flag, flag_set, argo::atomic::memory_order::release);
 	// Nobody should have touched that but us
 	ASSERT_EQ(flag_unset, rc);
 
@@ -257,9 +259,8 @@ TEST_F(backendTest, atomicXchgVisibility) {
 	int f;
 	std::chrono::system_clock::time_point max_time =
 		std::chrono::system_clock::now() + deadlock_threshold;
-	global_int _f(&flag[me]);
 	do {
-		f = argo::backend::atomic::load(_f);
+		f = argo::backend::atomic::load(my_flag);
 		// If we are over a minute in this loop, we have probably deadlocked.
 		ASSERT_LT(std::chrono::system_clock::now(), max_time);
 	} while (f == flag_unset);
@@ -314,7 +315,7 @@ TEST_F(backendTest, atomicCASAtomicityStress) {
 	}
 
 	argo::barrier();
-	ASSERT_EQ(10000*argo::number_of_nodes(), *counter);
+	ASSERT_EQ(10000*argo::number_of_nodes(), argo::backend::atomic::load(counter));
 }
 
 /**
@@ -329,7 +330,7 @@ TEST_F(backendTest, atomicFetchAddInt) {
 	}
 
 	argo::barrier();
-	ASSERT_EQ(10000*argo::number_of_nodes(), *counter);
+	ASSERT_EQ(10000*argo::number_of_nodes(), argo::backend::atomic::load(counter));
 }
 
 /**
@@ -349,7 +350,7 @@ TEST_F(backendTest, atomicFetchAddUInt) {
 	}
 
 	argo::barrier();
-	ASSERT_EQ(std::numeric_limits<unsigned>::max(), *counter);
+	ASSERT_EQ(std::numeric_limits<unsigned>::max(), argo::backend::atomic::load(counter));
 }
 
 /**
@@ -366,7 +367,7 @@ TEST_F(backendTest, atomicFetchAddFloat) {
 	argo::barrier();
 	// If this fails, make sure it's not because of floating point precision
 	// issues
-	ASSERT_EQ(10000*argo::number_of_nodes(), *counter);
+	ASSERT_EQ(10000*argo::number_of_nodes(), argo::backend::atomic::load(counter));
 }
 
 /**
@@ -379,7 +380,7 @@ TEST_F(backendTest, atomicFetchAddPointer) {
 	// about the atomicity etc
 	if (argo::node_id() == 0) {
 		int * old_ptr = argo::backend::atomic::fetch_add(ptr, 2);
-		ASSERT_EQ(2, *ptr.get() - old_ptr);
+		ASSERT_EQ(2, argo::backend::atomic::load(ptr) - old_ptr);
 	}
 }
 
