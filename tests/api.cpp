@@ -16,6 +16,8 @@
 #include "data_distribution/data_distribution.hpp"
 #include "gtest/gtest.h"
 
+#include "backend/mpi/persistence.hpp"
+
 /** @brief ArgoDSM memory size */
 constexpr std::size_t size = 1<<26;
 /** @brief ArgoDSM cache size */
@@ -72,6 +74,8 @@ TEST_F(APITest, IsArgoAddress) {
  * argo::get_homenode(T* addr) API function.
  */
 TEST_F(APITest, GetHomeNode) {
+	persistence_registry.register_thread();
+	auto ptrack = persistence_registry.get_tracker();
 	std::size_t alloc_size = default_global_mempool->available();
 	char *tmp = static_cast<char*>(collective_alloc(alloc_size));
 	argo::node_id_t node_id = argo::node_id();
@@ -86,6 +90,7 @@ TEST_F(APITest, GetHomeNode) {
 			s<alloc_size-1;
 			s+=page_size*num_nodes) {
 		tmp[s] = c_const;
+		ptrack->join_apb();
 	}
 	argo::barrier();
 
@@ -99,6 +104,7 @@ TEST_F(APITest, GetHomeNode) {
 	for(std::size_t count : node_counters) {
 		ASSERT_EQ(counter/num_nodes, count);
 	}
+	persistence_registry.unregister_thread();
 }
 
 /**
