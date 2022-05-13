@@ -378,18 +378,21 @@ namespace argo::backend::persistence {
 	/** @brief Wrapper for locks to automatically allow APBs while locking and unlocking. */
 	template<typename LockType>
 	class persistence_lock {
-		LockType &lock_var;
+		LockType *lock_var;
 	public:
-		persistence_lock(LockType &lock_var) : lock_var(lock_var) {}
+		persistence_lock(LockType *lock_var) : lock_var(lock_var) {}
 		void lock() {
 			persistence_registry.get_tracker()->allow_apb();
-			lock_var.lock();
+			lock_var->lock();
 			persistence_registry.get_tracker()->prohibit_apb();
 		}
 		void unlock() {
 			persistence_registry.get_tracker()->allow_apb();
-			lock_var.unlock();
+			lock_var->unlock();
 			persistence_registry.get_tracker()->prohibit_apb();
+		}
+		LockType *get_lock() {
+			return lock_var;
 		}
 	};
 
