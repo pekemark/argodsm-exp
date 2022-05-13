@@ -162,11 +162,10 @@ namespace argo {
 				 * @param f pointer to global field for storing lock state
 				 */
 				global_tas_lock(internal_field_type* f) : lock_field(global_lock_type(f)) {
-					*lock_field = lock_repr::make_init();
-					/* TODO: Should this be an atomic store?
-					 * Every node has its own TAS lock with the same underlying data.
-					 * On creation, all nodes will write to the same location without synchronization.
-					 * This would constitute a data race.
+					backend::atomic::store(lock_field, lock_repr::make_init(), atomic::memory_order::relaxed);
+					/* TODO: Every node has its own TAS lock with the same underlying data.
+					 * On creation, all nodes will write (atomically) to the same location.
+					 * This is excessive. Only one node has to init. Ugly to hardcode a node but node zero would probably do.
 					 */
 				};
 
