@@ -4,6 +4,7 @@
 #include <atomic>
 #include <deque>
 #include <mutex>
+#include <type_traits>
 #include <unordered_map>
 
 #include "../../synchronization/intranode/ticket_lock.hpp"
@@ -395,6 +396,91 @@ namespace argo::backend::persistence {
 			return lock_var;
 		}
 	};
+
+	enum persistance_barrier_type {
+		/** @brief Use to avoid executing an APB while waiting for the barrier.
+		 * Suitable for any barrier. */
+		NO_PERSIST_BARRIER,
+		/** @brief Use to allow APBs while waiting, but do not enforce one.
+		 * Suitable for any barrier. */
+		ALLOW_BARRIER,
+		/** @brief Use to enforece an APB in accociation to the barrier.
+		 * Suitable for (software) node-wide barriers. */
+		APB_BARRIER,
+		/** @brief Use to commit all outstanding persistent writes
+		 * in association with the barrier.
+		 * Suitable for system-wide (ArgoDSM) barriers. */
+		COMMIT_BARRIER
+	};
+
+	template<persistance_barrier_type btype>
+	class persistence_barrier_guard {
+		apb_arbiter::tracker *ptrack;
+		bool prohibiting = false;
+	public:
+		persistence_barrier_guard() {
+			if (btype == NO_PERSIST_BARRIER)
+				return; // Doesn't matter whether prohibiting or not.
+			ptrack = persistence_registry.get_tracker();
+			prohibiting = ptrack->is_prohibiting();
+			if (prohibiting)
+				ptrack->allow_apb();
+			if (btype == APB_BARRIER || btype == COMMIT_BARRIER)
+				ptrack->make_apb();
+			if (btype == COMMIT_BARRIER)
+				persistence_log.commit();
+		}
+		~persistence_barrier_guard() {
+			if (prohibiting)
+				ptrack->prohibit_apb();
+		}
+	};
+
+	/** @brief Wrapper for barriers to automatically perform an APB.
+	 * This function will call the supplied barrier function, @p bar ,
+	 * with the arguments in @p bargs after optionally allowing APBs,
+	 * calling an APB, and commit the entire log, depending on the
+	 * requested barrier type, @p btype .
+	 * @tparam btype Type of persist action to perform.
+	 * @param bar Barrier function to call.
+	 * @param bargs Arguemts to supply the barrier function with.
+	 * @return The return value of the barrier function.
+	*/
+	template<persistance_barrier_type btype, typename BarRet, typename... BarArgs>
+	BarRet persistence_barrier(BarRet (*bar)(BarArgs...), BarArgs... bargs) {
+		persistence_barrier_guard<btype> bar_guard;
+		if (std::is_void<BarRet>::value)
+			bar(bargs...);
+		else
+			return bar(bargs...);
+	}
+	template<typename BarRet, typename... BarArgs>
+	BarRet persistence_barrier(persistance_barrier_type btype, BarRet (*bar)(BarArgs...), BarArgs... bargs) {
+		switch (btype) {
+		case NO_PERSIST_BARRIER:
+			return persistence_barrier<NO_PERSIST_BARRIER>(bar, bargs...);
+		case ALLOW_BARRIER:
+			return persistence_barrier<ALLOW_BARRIER>(bar, bargs...);
+		case APB_BARRIER:
+			return persistence_barrier<APB_BARRIER>(bar, bargs...);
+		case COMMIT_BARRIER:
+			return persistence_barrier<COMMIT_BARRIER>(bar, bargs...);
+		default:
+			throw std::invalid_argument();
+		}
+	}
+	template<typename BarRet, typename... BarArgs>
+	BarRet allow_barrier(BarRet (*bar)(BarArgs...), BarArgs... bargs) {
+		return persistence_barrier<ALLOW_BARRIER>(bar, bargs...);
+	}
+	template<typename BarRet, typename... BarArgs>
+	BarRet apb_barrier(BarRet (*bar)(BarArgs...), BarArgs... bargs) {
+		return persistence_barrier<APB_BARRIER>(bar, bargs...);
+	}
+	template<typename BarRet, typename... BarArgs>
+	BarRet commit_barrier(BarRet (*bar)(BarArgs...), BarArgs... bargs) {
+		return persistence_barrier<COMMIT_BARRIER>(bar, bargs...);
+	}
 
 }
 
