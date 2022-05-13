@@ -203,7 +203,7 @@ namespace argo::backend::persistence {
 			if (!apb_in_progress.compare_exchange_strong(expected, true))
 				return false; // Did not make an APB, one was in progress.
 			// An APB was not in progress, but now it has been started.
-			// (1/) Wait for other threads to allow.
+			// (1/3) Wait for other threads to allow.
 			while (prohibiting_trackers > 0) {}
 			// (2/3) Perform APB (i.e., flush write buffer and freeze log group).
 			argo::backend::release();
