@@ -165,12 +165,16 @@ namespace argo::backend::persistence {
 
 	};
 
+	struct durable_group {
+		durable_range entry_range;
+	};
+
 	template<typename location_t>
 	struct group {
 		std::unordered_map<location_t, size_t> entry_lookup;
 		range entry_range;
-		group(size_t entry_buffer_size, size_t entry_buffer_start, durable_range *d_group)
-		: entry_range(entry_buffer_size, entry_buffer_start, d_group) {}
+		group(size_t entry_buffer_size, size_t entry_buffer_start, durable_group *d_group)
+		: entry_range(entry_buffer_size, entry_buffer_start, &d_group->entry_range) {}
 	};
 
 	struct durable_log {

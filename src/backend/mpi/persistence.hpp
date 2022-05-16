@@ -22,6 +22,8 @@ namespace argo::backend::persistence {
 
 	class range;
 
+	struct durable_group;
+
 	template<typename location_t>
 	struct group;
 
@@ -47,7 +49,7 @@ namespace argo::backend::persistence {
 
 		range *entry_range;
 
-		durable_range *d_group;
+		durable_group *d_group;
 		range *group_range;
 		std::deque<group<location_t>*> closed_groups;
 		group<location_t> *current_group;
