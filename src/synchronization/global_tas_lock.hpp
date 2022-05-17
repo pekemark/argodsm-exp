@@ -162,10 +162,18 @@ namespace argo {
 				 * @param f pointer to global field for storing lock state
 				 */
 				global_tas_lock(internal_field_type* f) : lock_field(global_lock_type(f)) {
-					backend::atomic::store(lock_field, lock_repr::make_init(), atomic::memory_order::relaxed);
+					// if (lock_field.node() == backend::node_id())
+					// 	backend::atomic::store(lock_field, lock_repr::make_init(), atomic::memory_order::relaxed);
+					*lock_field = lock_repr::make_init();
 					/* TODO: Every node has its own TAS lock with the same underlying data.
-					 * On creation, all nodes will write (atomically) to the same location.
-					 * This is excessive. Only one node has to init. Ugly to hardcode a node but node zero would probably do.
+					 * On creation, a single node should atomically write the initial value.
+					 * The choice of node can be a fixed ID, alternatively the homenode,
+					 * assuming all nodes are participating. Failing this assumption,
+					 * a correct fallback would be to have all nodes atomically write
+					 * the initial value. However, atomic writes, even from only the home node,
+					 * appear to be very costly. A more performant, but technically incorrect
+					 * solution is to have all nodes non-atomically write the initial value.
+					 * This should be fine as long as there is a barrier between initialisation and first use.
 					 */
 				};
 
