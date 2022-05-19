@@ -176,6 +176,9 @@ namespace argo::backend::persistence {
 
 	class range;
 
+	template<typename location_t>
+	struct durable_lock;
+
 	struct durable_group;
 
 	template<typename location_t>
@@ -193,6 +196,7 @@ namespace argo::backend::persistence {
 		static const size_t alignment = entry_size; // TODO: Should be imported from a header
 
 		static const size_t entries = 2048; // TODO: Should be imported from elsewhere or be part of initialisation
+		static const size_t locks = 2048; // TODO: Should be imported from elsewhere or be part of initialisation
 		static const size_t groups = 64; // TODO: Should be imported from elsewhere or be part of initialisation
 		static const size_t group_size_limit = entries*0.5; // TODO: Should be clear this will be a soft limit, also should be configurable
 		// Note: The group size limit should at least leave enough space to hold a full write buffer, perferably a bit more to be safe.
@@ -200,8 +204,11 @@ namespace argo::backend::persistence {
 		durable_original<entry_size> *d_original;
 		durable_change<entry_size, dirty_unit> *d_change;
 		location_t *d_location;
-
 		range *entry_range;
+
+		durable_lock<location_t> *d_lock;
+		lock_repr::lock_repr_type *d_lock_mailbox; // TODO: Does this need to be persistent?
+		range *lock_range;
 
 		durable_group *d_group;
 		range *group_range;
@@ -222,6 +229,7 @@ namespace argo::backend::persistence {
 		void commit_group();
 
 		void ensure_available_entry();
+		void ensure_available_lock();
 		void ensure_available_group();
 		void ensure_open_group();
 

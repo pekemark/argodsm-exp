@@ -169,16 +169,30 @@ namespace argo::backend::persistence {
 
 	};
 
+	template<typename location_t>
+	struct durable_lock	{
+		lock_repr::lock_repr_type old_field;
+		lock_repr::lock_repr_type new_field;
+		location_t location;
+	};
+
 	struct durable_group {
 		durable_range entry_range;
+		durable_range lock_range;
 	};
 
 	template<typename location_t>
 	struct group {
 		std::unordered_map<location_t, size_t> entry_lookup;
+		std::unordered_map<location_t, size_t> lock_lookup;
 		range entry_range;
-		group(size_t entry_buffer_size, size_t entry_buffer_start, durable_group *d_group)
-		: entry_range(entry_buffer_size, entry_buffer_start, &d_group->entry_range) {}
+		range lock_range;
+		group(
+			size_t entry_buffer_size, size_t entry_buffer_start,
+			size_t lock_buffer_size, size_t lock_buffer_start,
+			durable_group *d_group)
+		: entry_range(entry_buffer_size, entry_buffer_start, &d_group->entry_range)
+		, lock_range(lock_buffer_size, lock_buffer_start, &d_group->lock_range) {}
 	};
 
 	struct durable_log {
@@ -202,6 +216,8 @@ namespace argo::backend::persistence {
 		current_group = new group<location_t>(
 			entries,
 			entry_range->get_end(), // Start at the next entry
+			locks,
+			lock_range->get_end(),
 			&d_group[group_range->get_end()] // Usable as there is at least one free group slot
 		);
 		// PM FENCE
@@ -224,6 +240,7 @@ namespace argo::backend::persistence {
 		group_range->inc_start(); // Durable commit of the group
 		// Now, free volatile references
 		entry_range->inc_start(commit_group->entry_range.get_use());
+		lock_range->inc_start(commit_group->lock_range.get_use());
 		delete commit_group;
 		return true;
 	}
@@ -245,11 +262,16 @@ namespace argo::backend::persistence {
 		// printf("d_change address: %p\n", d_change);
 		init_offset += durable_alloc(d_location, entries, init_offset);
 		// printf("d_location address: %p\n", d_location);
+		init_offset += durable_alloc(d_lock, locks, init_offset);
+		// printf("d_lock address: %p\n", d_lock);
+		init_offset += durable_alloc(d_lock_mailbox, locks, init_offset);
+		// printf("d_lock_mailbox address: %p\n", d_lock_mailbox);
 		init_offset += durable_alloc(d_group, groups, init_offset);
 		// printf("d_group address: %p\n", d_group);
 		init_offset += durable_alloc(d_log, 1, init_offset);
 		// printf("d_log address: %p\n", d_log);
 		entry_range = new range(entries, 0, nullptr);
+		lock_range = new range(locks, 0, nullptr);
 		group_range = new range(groups, 0, &d_log->group_range);
 		current_group = nullptr; // No open group
 		log_lock = new locallock::ticket_lock();
@@ -261,6 +283,15 @@ namespace argo::backend::persistence {
 			// TODO: handle case when all entries are used by single (open) group, i.e. when there is no closed group
 			if (closed_groups.size() == 0)
 				throw std::logic_error("The open group has used all log entries.");
+			commit_group();
+		}
+	}
+
+	void undo_log::ensure_available_lock() {
+		while (lock_range->is_full()) { // While to account for "empty groups"
+			// TODO: handle case when all locks are used by single (open) group, i.e. when there is no closed group
+			if (closed_groups.size() == 0)
+				throw std::logic_error("The open group has used all log locks.");
 			commit_group();
 		}
 	}
