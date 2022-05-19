@@ -111,6 +111,7 @@ namespace argo::backend::persistence {
 
 		size_t inline get_start(size_t size) { return start % size; }
 		size_t inline get_end(size_t size) { return end % size; }
+		size_t inline get_last(size_t size) { return (end + (size-1)) % size; }
 
 		bool inline is_empty() { return start == end; }
 		bool inline is_full(size_t size) { return !is_empty() && get_start(size) == get_end(size); }
@@ -125,7 +126,7 @@ namespace argo::backend::persistence {
 	class range {
 
 		durable_range idx;
-		size_t size;
+		const size_t size;
 
 		durable_range *durable;
 
@@ -141,8 +142,11 @@ namespace argo::backend::persistence {
 			}
 		}
 
+		size_t inline get_size() { return size; }
+
 		size_t inline get_start() { return idx.get_start(size); }
 		size_t inline get_end() { return idx.get_end(size); }
+		size_t inline get_last() { return idx.get_last(size); }
 
 		bool inline is_empty() { return idx.is_empty(); }
 		bool inline is_full() { return idx.is_full(size); }
