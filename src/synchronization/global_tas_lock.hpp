@@ -14,13 +14,14 @@
 #include <chrono>
 #include <thread>
 #include "../backend/mpi/statistics.hpp"
+#include "../backend/mpi/persistence.hpp"
 
 namespace argo {
 	namespace globallock {
 		/** @brief a global test-and-set lock */
 		class global_tas_lock {
 			private:
-				class lock_repr {
+				class lock_repr_standard {
 					public:
 						/** @brief lock representation type this class supports */
 						using lock_repr_type = std::uint64_t;
@@ -131,13 +132,15 @@ namespace argo {
 						}
 				};
 
+				using lock_repr = backend::persistence::lock_repr;
+
 			public:
 				/**
 				 * @brief internally used type for lock field
 				 * @note this type may change without warning,
 				 *       user code must use this type alias
 				 */
-				using internal_field_type = std::uint64_t;
+				using internal_field_type = lock_repr::lock_repr_type;
 
 				static_assert(sizeof(internal_field_type) <= 8,
 					"The internal lock field cannot exceed 8 bytes "

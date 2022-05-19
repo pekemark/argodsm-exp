@@ -12,6 +12,160 @@
 
 namespace argo::backend::persistence {
 
+	class lock_repr {
+	public:
+		/** @brief lock representation type this class supports
+		 * (msb) lpxxxxxi LLL GGG UUUU UUUU (lsb) (64 bit)
+		 * Lower case = 1 bit, upper case = 4 bit
+		 * l = locked
+		 * p = awaiting persist
+		 * i = initial state (other data invalid)
+		 * L = Lock offset
+		 * G = Group offset
+		 * U = User (Node ID)
+		 * x = reserved
+		 */
+		using lock_repr_type = std::uint64_t;
+	private:
+		/** @brief constant signifying lock is in an initial state and free */
+		static const lock_repr_type init_bit = 1UL<<56;
+		/** @brief constant signifying lock is taken */
+		static const lock_repr_type locked_bit = 1UL<<63;
+		static const lock_repr_type awaiting_persist_bit = 1UL<<62;
+
+		static const std::size_t user_size = 32;
+		static const std::size_t user_shift = 0;
+		static const lock_repr_type user_mask = (1UL<<user_size) - 1;
+
+		static const std::size_t group_size = 12;
+		static const std::size_t group_shift = user_shift + user_size;
+		static const lock_repr_type group_mask = (1UL<<group_size) - 1;
+
+		static const std::size_t lock_size = 12;
+		static const std::size_t lock_shift = group_shift + group_size;
+		static const lock_repr_type lock_mask = (1UL<<lock_size) - 1;
+
+
+		/** @brief internal alias for determining node ID */
+		static argo::node_id_t inline self() { return backend::node_id(); }
+
+	public:
+		// Methods for information extraction. Side-effect free.
+
+		/** @brief Determines whether the lock field represents the an initial state.
+		 * @param lock_field The lock field to inspect.
+		 * @return True if the lock field is in an initial state, otherwise false.
+		 */
+		static bool inline is_init(lock_repr_type lock_field) { return (lock_field & init_bit) != 0; }
+
+		/** @brief Determines whether the lock field represents the a locked state.
+		 * @param lock_field The lock field to inspect.
+		 * @return True if the lock field is in a locked state, otherwise false.
+		 */
+		static bool inline is_locked(lock_repr_type lock_field) { return (lock_field & locked_bit) != 0; }
+
+		/** @brief Extracts the user information in the lock_field.
+		 * Undefined for a lock field in an initial state.
+		 * @param lock_field The lock field to inspect.
+		 * @return The node ID of the user encoded in the lock field.
+		 */
+		static argo::node_id_t inline get_user(lock_repr_type lock_field) {
+			return static_cast<argo::node_id_t>((lock_field >> user_shift) & user_mask);
+		}
+
+		/** @brief Determines whether the lock field encodes the specified user.
+		 * Undefined for a lock field in an initial state.
+		 * @param lock_field The lock field to inspect.
+		 * @param node Node ID to check against.
+		 * @return True if the lock field encodes the specified user.
+		 */
+		static bool inline is_user(lock_repr_type lock_field, argo::node_id_t node) { return get_user(lock_field) == node; }
+
+		/** @brief Determines whether the lock field encodes the local node as the user.
+		 * Undefined for a lock field in an initial state.
+		 * @param lock_field The lock field to inspect.
+		 * @return True if the lock field encodes the local node as the user.
+		 */
+		static bool inline is_user_self(lock_repr_type lock_field) { return is_user(lock_field, self()); }
+
+
+		// Methods for creating lock fields with a specific state. Side-effect free
+
+		static lock_repr_type inline make_field() { return init_bit; }
+		static lock_repr_type inline make_field(bool locked, bool awaiting_persist, argo::node_id_t user, std::size_t group_idx, std::size_t lock_idx) {
+			lock_repr_type field = 0;
+			if (locked) field |= locked_bit;
+			if (awaiting_persist) field |= awaiting_persist_bit;
+			field |= (user & user_mask) << user_shift;
+			field |= (group_idx & group_mask) << group_shift;
+			field |= (lock_idx & lock_mask) << lock_shift;
+			return field;
+		}
+
+		/** @brief Creates a lock field in a locked state.
+		 * @param node Node ID to encode as the user of the lock.
+		 * @return A lock field in an unlocked state, encoded with the specified user.
+		 */
+		static lock_repr_type inline make_locked(argo::node_id_t node) { return make_field(true, true, node, 0, 0); }
+
+		/** @brief Creates a lock field in a locked state.
+		 * @return A lock field in a locked state, encoded with the local node as the user.
+		 */
+		static lock_repr_type inline make_locked() { return make_locked(self()); }
+
+		/** @brief Creates a lock field in an unlocked state.
+		 * @param node Node ID to encode as the user of the lock.
+		 * @return A lock field in an unlocked state, encoded with the specified user.
+		 */
+		static lock_repr_type inline make_unlocked(argo::node_id_t node) { return make_field(false, true, node, 0, 0); }
+
+		/** @brief Creates a lock field in an unlocked state.
+		 * @return A lock field in an unlocked state, encoded with the local node as the user.
+		 */
+		static lock_repr_type inline make_unlocked() { return make_unlocked(self()); }
+
+		/** @brief Creates a lock field in an initial state.
+		 * @return A lock field in an initial state.
+		 */
+		static lock_repr_type inline make_init() { return init_bit; }
+
+
+		// Methods for registering important lock events. May have side-effects.
+
+		/** @brief Registers intention to lock on the specified lock field with retries until successful.
+		 * @param lock_field Pointer to the lock field to lock on.
+		 */
+		static void inline lock_initiate(lock_repr_type *lock_field) {}
+
+		/** @brief Registers intention to lock on the specified lock field. This intent is allowed to fail.
+		 * @param lock_field Pointer to the lock field to lock on.
+		 * @param old_field The expected value of the lock field.
+		 * @return A locked lock field appropriate to become the new value of the targeted lock field.
+		 */
+		static lock_repr_type inline try_lock_initiate(lock_repr_type *lock_field, lock_repr_type old_field) {
+			return make_locked();
+		}
+
+		/** @brief Registers a successfull lock aquisition on the specified lock field.
+		 * This call should follow a call to @c try_lock_initiate with the same lock field.
+		 * @param lock_field Pointer to the lock field that has been locked.
+		 */
+		static void inline lock_success(lock_repr_type *lock_field) {}
+
+		/** @brief Registers a failed lock aquisition on the specified lock field.
+		 * This call should follow a call to @c try_lock_initiate with the same lock field.
+		 * @param lock_field Pointer to the lock field that could not be locked.
+		 */
+		static void inline lock_fail(lock_repr_type *lock_field) {}
+
+		/** @brief Registers intent to unlock the specified lock field.
+		 * @return An unlocked lock field appropriate to become the new value of the targeted lock field.
+		 */
+		static lock_repr_type inline unlock(lock_repr_type *lock_field) {
+			return make_unlocked();
+		}
+	};
+
 	template<size_t entry_size>
 	struct durable_original;
 
