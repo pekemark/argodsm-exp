@@ -518,7 +518,9 @@ namespace argo::backend::persistence {
 		 */
 		apb_arbiter::tracker *get_tracker() {
 			std::lock_guard<locallock::ticket_lock> lock(registry_lock);
-			return reg[pthread_self()];
+			pthread_t tid = pthread_self();
+			assert(("Thread is not registered.", reg.count(tid) != 0));
+			return reg.at(tid);
 		}
 
 		/** @brief Unregisters and deleted the tracker associated with the calling thread. */
