@@ -484,51 +484,51 @@ namespace argo::backend::persistence {
 			return new tracker(this, prohibit);
 		}
 
-		/** @brief Registry for trackers belonging to threads.
-		 * This register enables tracker creation on a per thread basis,
-		 * with a centralised lookup for trackers of individual threads.
+	};
+
+	/** @brief Registry for trackers belonging to threads.
+	 * This register enables tracker creation on a per thread basis,
+	 * with a centralised lookup for trackers of individual threads.
+	 */
+	class thread_registry {
+
+	private:
+
+		/** @brief Pointer to the arbiter to request trackers from. */
+		apb_arbiter *arbiter;
+		/** @brief The registry mapping threads to trackers. */
+		std::unordered_map<pthread_t, apb_arbiter::tracker*> reg;
+		/** @brief Lock to protect the @c reg map from data races. */
+		locallock::ticket_lock registry_lock;
+
+	public:
+
+		thread_registry(apb_arbiter *arbiter) : arbiter(arbiter) {}
+
+		/** @brief Registers the calling thread with the registry. */
+		void register_thread() {
+			std::lock_guard<locallock::ticket_lock> lock(registry_lock);
+			pthread_t tid = pthread_self();
+			assert(("Thread is already registered.", reg.count(tid) == 0));
+			reg[tid] = arbiter->create_tracker();
+		}
+
+		/** @brief Reteurns the tracker associated with the calling thread.
+		 * @return Pointer to the tracker associated with the calling thread.
 		 */
-		class registry {
+		apb_arbiter::tracker *get_tracker() {
+			std::lock_guard<locallock::ticket_lock> lock(registry_lock);
+			return reg[pthread_self()];
+		}
 
-		private:
-
-			/** @brief Pointer to the arbiter to request trackers from. */
-			apb_arbiter *arbiter;
-			/** @brief The registry mapping threads to trackers. */
-			std::unordered_map<pthread_t, tracker*> reg;
-			/** @brief Lock to protect the @c reg map from data races. */
-			locallock::ticket_lock registry_lock;
-
-		public:
-
-			registry(apb_arbiter *arbiter) : arbiter(arbiter) {}
-
-			/** @brief Registers the calling thread with the registry. */
-			void register_thread() {
-				std::lock_guard<locallock::ticket_lock> lock(registry_lock);
-				pthread_t tid = pthread_self();
-				assert(("Thread is already registered.", reg.count(tid) == 0));
-				reg[tid] = arbiter->create_tracker();
-			}
-
-			/** @brief Reteurns the tracker associated with the calling thread.
-			 * @return Pointer to the tracker associated with the calling thread.
-			 */
-			tracker *get_tracker() {
-				std::lock_guard<locallock::ticket_lock> lock(registry_lock);
-				return reg[pthread_self()];
-			}
-
-			/** @brief Unregisters and deleted the tracker associated with the calling thread. */
-			void unregister_thread() {
-				std::lock_guard<locallock::ticket_lock> lock(registry_lock);
-				pthread_t tid = pthread_self();
-				assert(("Thread is not registered.", reg.count(tid) != 0));
-				delete reg[tid];
-				reg.erase(tid);
-			}
-
-		};
+		/** @brief Unregisters and deleted the tracker associated with the calling thread. */
+		void unregister_thread() {
+			std::lock_guard<locallock::ticket_lock> lock(registry_lock);
+			pthread_t tid = pthread_self();
+			assert(("Thread is not registered.", reg.count(tid) != 0));
+			delete reg.at(tid);
+			reg.erase(tid);
+		}
 
 	};
 
@@ -536,7 +536,7 @@ namespace argo::backend::persistence {
 
 extern argo::backend::persistence::undo_log persistence_log;
 extern argo::backend::persistence::apb_arbiter persistence_arbiter;
-extern argo::backend::persistence::apb_arbiter::registry persistence_registry;
+extern argo::backend::persistence::thread_registry persistence_registry;
 
 namespace argo::backend::persistence {
 

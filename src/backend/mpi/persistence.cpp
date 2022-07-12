@@ -15,7 +15,7 @@
 
 // argo::backend::persistence::undo_log persistence_log; // Currently declared in swdsm.cpp
 argo::backend::persistence::apb_arbiter persistence_arbiter(&persistence_log);
-argo::backend::persistence::apb_arbiter::registry persistence_registry(&persistence_arbiter);
+argo::backend::persistence::thread_registry persistence_registry(&persistence_arbiter);
 
 namespace argo::backend::persistence {
 
