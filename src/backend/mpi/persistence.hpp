@@ -347,7 +347,7 @@ namespace argo::backend::persistence {
 		/** @brief Count of trackers that prevents an APB. */
 		std::atomic_size_t prohibiting_trackers;
 		/** @brief Pointer to attached persistence log. */
-		undo_log *log;
+		undo_log *const log;
 
 	public:
 
@@ -477,7 +477,7 @@ namespace argo::backend::persistence {
 		private:
 
 			/** @brief The @c restore arbiter attached to the @c tracker. */
-			apb_arbiter *arbiter;
+			apb_arbiter *const arbiter;
 			/** @brief Indicates whether the tracker is prohibiting APBs. */
 			bool prohibiting = false;
 
@@ -578,7 +578,7 @@ namespace argo::backend::persistence {
 	private:
 
 		/** @brief Pointer to the arbiter to request trackers from. */
-		apb_arbiter *arbiter;
+		apb_arbiter *const arbiter;
 		/** @brief The registry mapping threads to trackers. */
 		std::unordered_map<pthread_t, apb_arbiter::tracker*> reg;
 		/** @brief Lock to protect the @c reg map from data races. */
