@@ -251,7 +251,8 @@ namespace argo::backend::persistence {
 
 	struct durable_group {
 		durable_range entry_range;
-		durable_range lock_range;
+		size_t lock_head;
+		size_t unlock_head;
 	};
 
 	template<typename location_t>
@@ -259,13 +260,16 @@ namespace argo::backend::persistence {
 		std::unordered_map<location_t, size_t> entry_lookup;
 		std::unordered_map<location_t, size_t> lock_lookup;
 		range entry_range;
-		range lock_range;
+		list<location_t, durable_lock<location_t>> lock_list;
+		list<location_t, durable_lock<location_t>> unlock_list;
 		group(
 			size_t entry_buffer_size, size_t entry_buffer_start,
-			size_t lock_buffer_size, size_t lock_buffer_start,
+			size_t lock_pool_size, durable_list_node<durable_lock<location_t>> *lock_pool_start,
 			durable_group *d_group)
 		: entry_range(entry_buffer_size, entry_buffer_start, &d_group->entry_range)
-		, lock_range(lock_buffer_size, lock_buffer_start, &d_group->lock_range) {}
+		, lock_list(&d_group->lock_head, lock_pool_start, lock_pool_size)
+		, unlock_list(&d_group->unlock_head, lock_pool_start, lock_pool_size)
+		{}
 	};
 
 	struct durable_log {
@@ -290,7 +294,7 @@ namespace argo::backend::persistence {
 			entries,
 			entry_range->get_end(), // Start at the next entry
 			locks,
-			lock_range->get_end(),
+			d_lock,
 			&d_group[group_range->get_end()] // Usable as there is at least one free group slot
 		);
 		// PM FENCE
@@ -312,8 +316,22 @@ namespace argo::backend::persistence {
 		closed_groups.pop_front(); // Remove the group from the volatile queue
 		group_range->inc_start(); // Durable commit of the group
 		// Now, free volatile references
+		// - Return entry slots (advance range start)
 		entry_range->inc_start(commit_group->entry_range.get_use());
-		lock_range->inc_start(commit_group->lock_range.get_use());
+		// - Return lock slots (push free-to-reuse indices)
+		for (size_t lock_idx = commit_group->lock_list.front_idx();
+			!(commit_group->lock_list.is_end(lock_idx));
+			lock_idx = commit_group->lock_list.next_idx(lock_idx)
+		) {
+			lock_free.push_back(lock_idx);
+		}
+		for (size_t lock_idx = commit_group->unlock_list.front_idx();
+			!(commit_group->unlock_list.is_end(lock_idx));
+			lock_idx = commit_group->unlock_list.next_idx(lock_idx)
+		) {
+			lock_free.push_back(lock_idx);
+		}
+		// - Delete the commit group
 		delete commit_group;
 		return true;
 	}
@@ -344,7 +362,8 @@ namespace argo::backend::persistence {
 		init_offset += durable_alloc(d_log, 1, init_offset);
 		// printf("d_log address: %p\n", d_log);
 		entry_range = new range(entries, 0, nullptr);
-		lock_range = new range(locks, 0, nullptr);
+		for (size_t i = 0; i < locks; ++i)
+			lock_free.push_back(i);
 		group_range = new range(groups, 0, &d_log->group_range);
 		current_group = nullptr; // No open group
 		log_lock = new locallock::ticket_lock();
@@ -361,7 +380,7 @@ namespace argo::backend::persistence {
 	}
 
 	void undo_log::ensure_available_lock() {
-		while (lock_range->is_full()) { // While to account for "empty groups"
+		while (lock_free.empty()) { // While to account for "empty groups"
 			// TODO: handle case when all locks are used by single (open) group, i.e. when there is no closed group
 			if (closed_groups.size() == 0)
 				throw std::logic_error("The open group has used all log locks.");

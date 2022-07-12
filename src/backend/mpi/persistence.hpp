@@ -244,9 +244,9 @@ namespace argo::backend::persistence {
 		location_t *d_location;
 		range *entry_range;
 
-		durable_lock<location_t> *d_lock;
+		durable_list_node<durable_lock<location_t>> *d_lock;
 		lock_repr::lock_repr_type *d_lock_mailbox; // TODO: Does this need to be persistent?
-		range *lock_range;
+		std::deque<size_t> lock_free; // Indexes of unused locks
 
 		durable_group *d_group;
 		range *group_range;
