@@ -472,8 +472,8 @@ namespace argo::backend::persistence {
 	}
 
 	void undo_log::commit_group() {
-		if (!try_commit_group())
-			throw std::logic_error("Failed to commit group.");
+		while (!try_commit_group()) {} // TODO: This could cause issues as the log lock is being blocked. If temporarily unlocking, caller should be aware.
+			// throw std::logic_error("Failed to commit group.");
 		// TODO: requires smarter implementation that waits until commit is possible.
 		// printf("Comitted a group.\n");
 	}
