@@ -491,6 +491,24 @@ namespace argo::backend::persistence {
 			} else if (std::chrono::steady_clock::now() - group_time >= group_time_limit) {
 				// TODO: The time-based request may fit better elsewhere (as long as the log lock is taken when checking for current group existance).
 				persistence_arbiter.request_apb(); // TODO: Should be requested a better way. The log shouldn't depend on the arbiter.
+			} else {
+				// TODO: The unlock-based request may fit better elsewhere (as long as the log lock is taken when checking for current group existance and walking the unlock list).
+				// TODO: This code requests an apb if one of the unlocked locks
+				//       in the requested group has been taken. However, it is
+				//       bad that the code goes through the unlock list all the time.
+				//       Once an apb is ordered this can stop.
+				//       Also, it may be worth only doing this periodically
+				//       (i.e. every nth flush where n is configurable).
+				for (size_t lock_idx = current_group->unlock_list.front_idx();
+					!(current_group->unlock_list.is_end(lock_idx));
+					lock_idx = current_group->unlock_list.next_idx(lock_idx)
+				) {
+					lock_repr::lock_repr_type mailbox_field = mpi_mailbox->load_local(lock_idx);
+					if (!lock_repr::is_init(mailbox_field)) {
+						persistence_arbiter.request_apb();  // TODO: Should be requested a better way. The log shouldn't depend on the arbiter.
+						break;
+					}
+				}
 			}
 		}
 		return count;
