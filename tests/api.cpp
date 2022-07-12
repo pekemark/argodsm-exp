@@ -42,11 +42,11 @@ class APITest : public testing::Test {
 	protected:
 		APITest() {
 			argo_reset();
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 
 		~APITest() {
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 };
 
@@ -74,7 +74,6 @@ TEST_F(APITest, IsArgoAddress) {
  * argo::get_homenode(T* addr) API function.
  */
 TEST_F(APITest, GetHomeNode) {
-	persistence_registry.register_thread();
 	auto ptrack = persistence_registry.get_tracker();
 	std::size_t alloc_size = default_global_mempool->available();
 	char *tmp = static_cast<char*>(collective_alloc(alloc_size));
@@ -92,7 +91,7 @@ TEST_F(APITest, GetHomeNode) {
 		tmp[s] = c_const;
 		ptrack->join_apb();
 	}
-	argo::barrier();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 	/* Test that the number of pages owned by each node is equal */
 	std::size_t counter = 0;
@@ -104,7 +103,6 @@ TEST_F(APITest, GetHomeNode) {
 	for(std::size_t count : node_counters) {
 		ASSERT_EQ(counter/num_nodes, count);
 	}
-	persistence_registry.unregister_thread();
 }
 
 /**
@@ -133,8 +131,10 @@ TEST_F(APITest, GetBlockSize) {
  */
 int main(int argc, char **argv) {
 	argo::init(size, cache_size);
+	persistence_registry.register_thread();
 	::testing::InitGoogleTest(&argc, argv);
 	auto res = RUN_ALL_TESTS();
+	persistence_registry.unregister_thread();
 	argo::finalize();
 	return res;
 }

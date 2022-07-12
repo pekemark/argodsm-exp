@@ -10,6 +10,8 @@
 #include<vector>
 #include<list>
 
+#include "backend/mpi/persistence.hpp"
+
 /** @brief ArgoDSM memory size */
 constexpr std::size_t size = 1<<30;
 /** @brief ArgoDSM cache size */
@@ -25,11 +27,11 @@ class barrierTest : public testing::Test, public ::testing::WithParamInterface<i
 	protected:
 		barrierTest()  {
 			argo_reset();
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 		}
 		~barrierTest() {
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 };
 
@@ -53,6 +55,7 @@ TEST_P(barrierTest, threadBarrier) {
 		// add a thread
 		thread_array.push_back(std::thread());
 	}
+	ASSERT_NO_THROW(argo::backend::persistence::commit_barrier(&argo::barrier, 1UL));
 	// run ALL threads from beginning
 	int cnt = 1;
 	for(auto& t : thread_array) {
@@ -77,6 +80,7 @@ TEST_P(barrierTest, threadBarrier) {
 	for(auto& t : thread_array) {
 		t.join();
 	}
+	ASSERT_NO_THROW(argo::backend::persistence::commit_barrier(&argo::barrier, 1UL));
 }
 
 /** @brief Test from 0 threads to max_threads, both inclusive */
@@ -90,8 +94,10 @@ INSTANTIATE_TEST_CASE_P(threadCount, barrierTest, ::testing::Range(0, max_thread
  */
 int main(int argc, char **argv) {
 	argo::init(size, cache_size);
+	persistence_registry.register_thread();
 	::testing::InitGoogleTest(&argc, argv);
 	auto res = RUN_ALL_TESTS();
+	persistence_registry.unregister_thread();
 	argo::finalize();
 	return res;
 }

@@ -22,6 +22,8 @@
 #include <limits.h>
 #include "gtest/gtest.h"
 
+#include "backend/mpi/persistence.hpp"
+
 /** @brief ArgoDSM memory size */
 constexpr std::size_t size = 1<<20;
 /** @brief ArgoDSM cache size */
@@ -46,8 +48,10 @@ protected:
 	argo::globallock::cohort_lock *cohort_lock;
 	/** @brief global tas lock type */
 	using tas_lock = argo::globallock::global_tas_lock;
+	/** @brief global persist tas lock type */
+	using ptas_lock = argo::backend::persistence::persistence_lock<tas_lock>;
 	/** @brief global tas lock for testing*/
-	tas_lock *global_tas_lock;
+	ptas_lock *global_tas_lock;
 	/** @brief field needed for the global tas lock*/
 	tas_lock::internal_field_type* field;
 	/** @brief global counter used in several tests */
@@ -55,16 +59,17 @@ protected:
 
 	LockTest() {
 		argo_reset();
-		argo::barrier();
+		argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		field = argo::conew_<tas_lock::internal_field_type>();
-		global_tas_lock = new tas_lock(field);
-		argo::barrier();
+		global_tas_lock = new ptas_lock(new tas_lock(field));
+		argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 	}
 
 	~LockTest() {
 		argo::codelete_(field);
+		delete global_tas_lock->get_lock();
 		delete global_tas_lock;
-		argo::barrier();
+		argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 	}
 };
 
@@ -84,7 +89,7 @@ TEST_F(LockTest,TAS_trylock_all) {
 			did_increment[i] = false;
 		}
 	}
-	argo::barrier();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 	/* All nodes try to take the lock and increment a shared counter */
 	ASSERT_NO_THROW(res = global_tas_lock->try_lock());
@@ -93,7 +98,7 @@ TEST_F(LockTest,TAS_trylock_all) {
 		did_increment[argo::node_id()] = true;
 		ASSERT_NO_THROW(global_tas_lock->unlock());
 	}
-	argo::barrier();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 	/* At least not more than number_of_nodes nodes can have incremented the counter */
 	ASSERT_GE(argo::number_of_nodes(),*counter);
@@ -124,7 +129,7 @@ TEST_F(LockTest,TAS_lock_custom_barrier) {
 	if(argo::node_id() == 0){
 		*counter = 0;
 	}
-	argo::barrier();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 	/* All nodes increment the counter */
 	ASSERT_NO_THROW(global_tas_lock->lock());
@@ -238,20 +243,27 @@ TEST_F(LockTest,StressCohortLock) {
 	std::thread threads[nThreads];
 	counter = argo::conew_<int>(0);
 	cohort_lock = new argo::globallock::cohort_lock();
+	auto persistence_lock = new argo::backend::persistence::persistence_lock<argo::globallock::cohort_lock>(cohort_lock);
 
 	ASSERT_EQ(0, *counter);
-	argo::barrier();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
+	persistence_registry.get_tracker()->allow_apb();
 	for (int i = 0; i < nThreads; i++) {
-		threads[i] = std::thread(
-			increment_counter<argo::globallock::cohort_lock>, cohort_lock, counter);
+		threads[i] = std::thread([=]{
+			persistence_registry.register_thread();
+			increment_counter<argo::backend::persistence::persistence_lock<argo::globallock::cohort_lock>>(persistence_lock, counter);
+			persistence_registry.unregister_thread();
+		});
 	}
 	for (int i = 0; i < nThreads; i++) {
 		threads[i].join();
 	}
 
-	argo::barrier();
+	persistence_registry.get_tracker()->prohibit_apb();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 	ASSERT_EQ(iter * nThreads * argo::number_of_nodes(), *counter);
 	argo::codelete_(counter);
+	delete persistence_lock;
 	delete cohort_lock;
 }
 
@@ -263,8 +275,10 @@ TEST_F(LockTest,StressCohortLock) {
  */
 int main(int argc, char **argv) {
 	argo::init(size, cache_size);
+	persistence_registry.register_thread();
 	::testing::InitGoogleTest(&argc, argv);
 	auto res = RUN_ALL_TESTS();
+	persistence_registry.unregister_thread();
 	argo::finalize();
 	return res;
 }

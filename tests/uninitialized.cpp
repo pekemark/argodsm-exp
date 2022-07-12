@@ -8,6 +8,8 @@
 #include "backend/backend.hpp"
 #include "gtest/gtest.h"
 
+#include "backend/mpi/persistence.hpp"
+
 /** @brief ArgoDSM memory size */
 constexpr std::size_t size = 1<<28;
 /** @brief ArgoDSM cache size */
@@ -24,11 +26,11 @@ class UninitializedAccessTest : public testing::Test {
 	protected:
 		UninitializedAccessTest() {
 			argo_reset();
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 
 		~UninitializedAccessTest() {
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 };
 
@@ -54,8 +56,10 @@ TEST_F(UninitializedAccessTest, ReadUninitializedSinglenode) {
  */
 int main(int argc, char **argv) {
 	argo::init(size, cache_size);
+	persistence_registry.register_thread();
 	::testing::InitGoogleTest(&argc, argv);
 	auto res = RUN_ALL_TESTS();
+	persistence_registry.unregister_thread();
 	argo::finalize();
 	return res;
 }

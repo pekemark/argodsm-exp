@@ -49,11 +49,11 @@ class backendTest : public testing::Test, public ::testing::WithParamInterface<i
 	protected:
 		backendTest()  {
 			argo_reset();
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 		}
 		~backendTest() {
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 };
 
@@ -415,7 +415,7 @@ TEST_F(backendTest, selectiveArray) {
 	std::chrono::system_clock::time_point max_time =
 		std::chrono::system_clock::now() + deadlock_threshold;
 
-	auto ptrack = persistence_arbiter.create_tracker();
+	auto ptrack = persistence_registry.get_tracker();
 
 	// Initialize
 	if(argo::node_id() == 0){
@@ -424,7 +424,7 @@ TEST_F(backendTest, selectiveArray) {
 			ptrack->join_apb();
 		}
 	}
-	argo::barrier();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 	// Set each array element on node 0, then set flag
 	if(argo::node_id() == 0){
@@ -462,7 +462,6 @@ TEST_F(backendTest, selectiveArray) {
 	ASSERT_EQ(count, expected);
 
 	// Clean up
-	delete ptrack;
 	argo::codelete_array(array);
 }
 
@@ -477,7 +476,7 @@ TEST_F(backendTest, selectiveUnaligned) {
 	std::chrono::system_clock::time_point max_time =
 		std::chrono::system_clock::now() + deadlock_threshold;
 
-	auto ptrack = persistence_arbiter.create_tracker();
+	auto ptrack = persistence_registry.get_tracker();
 
 	// Initialize
 	if(argo::node_id() == 0){
@@ -486,7 +485,7 @@ TEST_F(backendTest, selectiveUnaligned) {
 			ptrack->join_apb();
 		}
 	}
-	argo::barrier();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 	// Set array elements on node 0, then set flag
 	if(argo::node_id() == 0){
@@ -529,7 +528,6 @@ TEST_F(backendTest, selectiveUnaligned) {
 	ASSERT_EQ(count, expected);
 
 	// Clean up
-	delete ptrack;
 	argo::codelete_array(array);
 }
 
@@ -547,7 +545,7 @@ TEST_F(backendTest, writeBufferLoad) {
 	std::mt19937 rng(rd());
 	std::uniform_int_distribution<int> dist(0,array_size-1);
 
-	auto ptrack = persistence_arbiter.create_tracker();
+	auto ptrack = persistence_registry.get_tracker();
 
 	// Initialize write buffer
 	if(argo::node_id() == 0){
@@ -556,7 +554,7 @@ TEST_F(backendTest, writeBufferLoad) {
 			ptrack->join_apb();
 		}
 	}
-	argo::barrier();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 	// One node at a time, increment random elements num_writes times
 	for(int i=0; i<argo::number_of_nodes(); i++){
@@ -566,7 +564,7 @@ TEST_F(backendTest, writeBufferLoad) {
 				ptrack->join_apb();
 			}
 		}
-		argo::barrier();
+		argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 	}
 
 	// Check that each node incremented num_writes elements
@@ -579,7 +577,6 @@ TEST_F(backendTest, writeBufferLoad) {
 		ASSERT_EQ(count, expected);
 	}
 	// Clean up
-	delete ptrack;
 	argo::codelete_array(array);
 }
 
@@ -591,8 +588,10 @@ TEST_F(backendTest, writeBufferLoad) {
  */
 int main(int argc, char **argv) {
 	argo::init(size, cache_size);
+	persistence_registry.register_thread();
 	::testing::InitGoogleTest(&argc, argv);
 	auto res = RUN_ALL_TESTS();
+	persistence_registry.unregister_thread();
 	argo::finalize();
 	return res;
 }

@@ -15,6 +15,8 @@
 #include <limits.h>
 #include "gtest/gtest.h"
 
+#include "backend/mpi/persistence.hpp"
+
 /** @brief Maximum number of OMP threads to run */
 #define MAX_THREADS 16
 /** @brief Numbers of iterations to run in each test */
@@ -39,11 +41,11 @@ class ompTest : public testing::Test {
 	protected:
 		ompTest()  {
 			argo_reset();
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 		}
 		~ompTest() {
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 };
 
@@ -66,7 +68,7 @@ TEST_F(ompTest, WriteAndRead) {
 	if(argo_node_id() == (argo_number_of_nodes()-1)){ // Last node always iterates to the end of the array
 		end = amount;
 	}
-	argo::barrier();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 	for(n=0; n<ITER; n++){ //Run ITER times
 		for(i=0; i<MAX_THREADS; i++){ //Up to MAX_THREADS, threads
@@ -76,13 +78,13 @@ TEST_F(ompTest, WriteAndRead) {
 			for(j=start; j<end; j++){   
 				arr[j]=(i+42); //Each entry written
 			}
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 #pragma omp parallel for
 			for(j=0; j<amount; j++){
 				EXPECT_EQ(arr[j],(i+42)); //Each thread checks for correctness
 			}
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 	}
 }
@@ -95,8 +97,10 @@ TEST_F(ompTest, WriteAndRead) {
  */
 int main(int argc, char **argv) {
 	argo::init(size, cache_size);
+	persistence_registry.register_thread();
 	::testing::InitGoogleTest(&argc, argv);
 	auto res = RUN_ALL_TESTS();
+	persistence_registry.unregister_thread();
 	argo::finalize();
 	return res;
 }

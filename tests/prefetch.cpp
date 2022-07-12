@@ -18,6 +18,8 @@
 #include "env/env.hpp"
 #include "gtest/gtest.h"
 
+#include "backend/mpi/persistence.hpp"
+
 /** @brief ArgoDSM memory size */
 constexpr std::size_t size = 1<<30;
 /** @brief ArgoDSM cache size */
@@ -42,11 +44,11 @@ class PrefetchTest : public testing::Test {
 	protected:
 		PrefetchTest() {
 			argo_reset();
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 
 		~PrefetchTest() {
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 };
 
@@ -62,7 +64,7 @@ TEST_F(PrefetchTest, FirstPage) {
 	if(argo::node_id()==0){
 		tmp[0] = c_const;
 	}
-	argo::barrier();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 	ASSERT_EQ(c_const, tmp[0]);
 }
 
@@ -76,7 +78,7 @@ TEST_F(PrefetchTest, OutOfBounds) {
 	if(argo::node_id()==0){
 		tmp[alloc_size-1] = c_const;
 	}
-	argo::barrier();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 	ASSERT_EQ(c_const, tmp[alloc_size-1]);
 }
 
@@ -92,7 +94,7 @@ TEST_F(PrefetchTest, PageBoundaries) {
 		tmp[(page_size*load_size)-1] = c_const;
 		tmp[page_size*load_size] = c_const;
 	}
-	argo::barrier();
+	argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 	ASSERT_EQ(c_const, tmp[(page_size*load_size)-1]);
 	ASSERT_EQ(c_const, tmp[page_size*load_size]);
 }
@@ -151,7 +153,7 @@ TEST_F(PrefetchTest, AccessPrefetched) {
 			}
 		}
 		/* Wait for init to finish */
-		argo::barrier();
+		argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 		/* On all nodes, check that after accessing the first page,
 		 * all expected pages are either node local or cached. */
@@ -181,8 +183,10 @@ TEST_F(PrefetchTest, AccessPrefetched) {
  */
 int main(int argc, char **argv) {
 	argo::init(size, cache_size);
+	persistence_registry.register_thread();
 	::testing::InitGoogleTest(&argc, argv);
 	auto res = RUN_ALL_TESTS();
+	persistence_registry.unregister_thread();
 	argo::finalize();
 	return res;
 }

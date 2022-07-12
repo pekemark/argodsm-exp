@@ -10,6 +10,8 @@
 #include<vector>
 #include<list>
 
+#include "backend/mpi/persistence.hpp"
+
 /** @brief ArgoDSM memory size */
 constexpr std::size_t size = 1<<30;
 /** @brief ArgoDSM cache size */
@@ -22,11 +24,11 @@ class cppTest : public testing::Test {
 	protected:
 		cppTest()  {
 			argo_reset();
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 
 		}
 		~cppTest() {
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 };
 
@@ -47,7 +49,7 @@ TEST_F(cppTest, simpleList) {
 		if(argo_node_id() == i) {
 			ASSERT_NO_THROW(l->push_back(i));
 		}
-		barrier();
+		argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 	}
 
 	int id = 0;
@@ -74,7 +76,7 @@ TEST_F(cppTest, simpleVector) {
 		if(argo_node_id() == i) {
 			ASSERT_NO_THROW(v->push_back(i));
 		}
-		barrier();
+		argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 	}
 
 	int id = 0;
@@ -93,8 +95,10 @@ TEST_F(cppTest, simpleVector) {
  */
 int main(int argc, char **argv) {
 	argo::init(size, cache_size);
+	persistence_registry.register_thread();
 	::testing::InitGoogleTest(&argc, argv);
 	auto res = RUN_ALL_TESTS();
+	persistence_registry.unregister_thread();
 	argo::finalize();
 	return res;
 }

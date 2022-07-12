@@ -17,6 +17,8 @@
 #include "backend/backend.hpp"
 #include "gtest/gtest.h"
 
+#include "backend/mpi/persistence.hpp"
+
 /** @brief ArgoDSM memory size */
 constexpr std::size_t size = 1<<30;
 /** @brief ArgoDSM cache size */
@@ -33,11 +35,11 @@ class AllocatorTest : public testing::Test {
 	protected:
 		AllocatorTest() {
 			argo_reset();
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 
 		~AllocatorTest() {
-			argo::barrier();
+			argo::backend::persistence::commit_barrier(&argo::barrier, 1UL);
 		}
 };
 
@@ -482,8 +484,10 @@ TEST_F(AllocatorTest, NewInitialization) {
  */
 int main(int argc, char **argv) {
 	argo::init(size, cache_size);
+	persistence_registry.register_thread();
 	::testing::InitGoogleTest(&argc, argv);
 	auto res = RUN_ALL_TESTS();
+	persistence_registry.unregister_thread();
 	argo::finalize();
 	return res;
 }
