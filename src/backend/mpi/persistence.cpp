@@ -386,6 +386,8 @@ namespace argo::backend::persistence {
 		);
 		// PM FENCE
 		group_range->inc_end(); // Include newly reset group in group buffer
+		// Reset limit counters
+		group_flushes = 0;
 	}
 
 	void undo_log::close_group() {
@@ -479,6 +481,13 @@ namespace argo::backend::persistence {
 		size_t count = 0;
 		while (try_commit_group()) {
 			count += 1;
+		}
+		if (current_group != nullptr) {
+			++group_flushes;
+			// TODO: Can be skipped if an APB is already requested.
+			if (group_flushes >= group_flush_limit) {
+				persistence_arbiter.request_apb(); // TODO: Should be requested a better way. The log shouldn't depend on the arbiter.
+			}
 		}
 		return count;
 	}
