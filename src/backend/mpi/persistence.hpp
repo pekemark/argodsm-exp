@@ -2,6 +2,7 @@
 #define argo_persistence_hpp argo_persistence_hpp
 
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include <mutex>
 #include <type_traits>
@@ -238,6 +239,7 @@ namespace argo::backend::persistence {
 		static const size_t group_size_limit = entries*0.5; // TODO: Should be clear this will be a soft limit, also should be configurable
 		// Note: The group size limit should at least leave enough space to hold a full write buffer, perferably a bit more to be safe.
 		static const uint32_t group_flush_limit = 64; // TODO: Should be clear this will be a soft limit, also should be configurable
+		std::chrono::milliseconds group_time_limit{500}; // TODO: Should be clear this will be a soft limit, also should be configurable
 
 		durable_original<entry_size> *d_original;
 		durable_change<entry_size, dirty_unit> *d_change;
@@ -257,6 +259,7 @@ namespace argo::backend::persistence {
 		std::deque<group<location_t>*> closed_groups;
 		group<location_t> *current_group;
 		uint32_t group_flushes = 0;
+		std::chrono::time_point<std::chrono::steady_clock> group_time;
 
 		durable_log *d_log;
 

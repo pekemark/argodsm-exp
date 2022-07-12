@@ -388,6 +388,7 @@ namespace argo::backend::persistence {
 		group_range->inc_end(); // Include newly reset group in group buffer
 		// Reset limit counters
 		group_flushes = 0;
+		group_time = std::chrono::steady_clock::now();
 	}
 
 	void undo_log::close_group() {
@@ -486,6 +487,9 @@ namespace argo::backend::persistence {
 			++group_flushes;
 			// TODO: Can be skipped if an APB is already requested.
 			if (group_flushes >= group_flush_limit) {
+				persistence_arbiter.request_apb(); // TODO: Should be requested a better way. The log shouldn't depend on the arbiter.
+			} else if (std::chrono::steady_clock::now() - group_time >= group_time_limit) {
+				// TODO: The time-based request may fit better elsewhere (as long as the log lock is taken when checking for current group existance).
 				persistence_arbiter.request_apb(); // TODO: Should be requested a better way. The log shouldn't depend on the arbiter.
 			}
 		}
