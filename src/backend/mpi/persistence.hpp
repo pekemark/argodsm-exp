@@ -11,6 +11,16 @@
 #include "types/types.hpp"
 
 namespace argo::backend::persistence {
+	class undo_log;
+	class apb_arbiter;
+	class thread_registry;
+}
+
+extern argo::backend::persistence::undo_log persistence_log;
+extern argo::backend::persistence::apb_arbiter persistence_arbiter;
+extern argo::backend::persistence::thread_registry persistence_registry;
+
+namespace argo::backend::persistence {
 
 	class lock_repr {
 	public:
@@ -533,14 +543,6 @@ namespace argo::backend::persistence {
 		}
 
 	};
-
-}
-
-extern argo::backend::persistence::undo_log persistence_log;
-extern argo::backend::persistence::apb_arbiter persistence_arbiter;
-extern argo::backend::persistence::thread_registry persistence_registry;
-
-namespace argo::backend::persistence {
 
 	/** @brief Wrapper for locks to automatically allow APBs while locking and unlocking. */
 	template<typename LockType>
