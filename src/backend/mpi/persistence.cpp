@@ -475,6 +475,14 @@ namespace argo::backend::persistence {
 		// printf("Comitted a group.\n");
 	}
 
+	size_t undo_log::flush_groups() {
+		size_t count = 0;
+		while (try_commit_group()) {
+			count += 1;
+		}
+		return count;
+	}
+
 	size_t undo_log::initialize(size_t offset) {
 		static_assert(sizeof(durable_original<entry_size>) == entry_size,
 			"The durable_original size doesn't match the entry_size.");
@@ -587,6 +595,7 @@ namespace argo::backend::persistence {
 		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
 		if (current_group != nullptr)
 			close_group();
+		flush_groups();
 	}
 
 	void undo_log::commit() {
@@ -595,6 +604,11 @@ namespace argo::backend::persistence {
 			close_group();
 		while (!closed_groups.empty())
 			commit_group();
+	}
+
+	size_t undo_log::flush() {
+		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
+		return flush_groups();
 	}
 
 	size_t undo_log::allocate_lock_node() {

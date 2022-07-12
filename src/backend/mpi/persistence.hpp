@@ -268,6 +268,7 @@ namespace argo::backend::persistence {
 		void close_group();
 		bool try_commit_group();
 		void commit_group();
+		size_t flush_groups();
 
 		void ensure_available_entry();
 		void ensure_available_lock();
@@ -291,6 +292,7 @@ namespace argo::backend::persistence {
 
 		void freeze(); // Closes the open group
 		void commit(); // Closes the open group and blocks until all groups are committed
+		size_t flush();
 
 		/** @brief Indicates intention to repeatedly attempt to acquire a lock until successful.
 		 * Marks necesary resources to be retained for reuse in case of lock failure.
@@ -504,12 +506,14 @@ namespace argo::backend::persistence {
 					arbiter->allow_apb();
 				prohibiting = false;
 				arbiter->handle_apb_request();
+				arbiter->log->flush();
 			}
 
 			/** @brief Adds the tracker as prohibiting with the arbiter.
 			 * @note Will stall until no restore point creation is in progress.
 			 */
 			void prohibit_apb() {
+				arbiter->log->flush();
 				if (!prohibiting)
 					arbiter->handle_apb_request();
 					arbiter->prohibit_apb();
@@ -520,6 +524,7 @@ namespace argo::backend::persistence {
 			 * @note Will stall until no APB is in progress.
 			 */
 			void join_apb() {
+				arbiter->log->flush();
 				if (prohibiting)
 					if (arbiter->apb_requested) {
 						arbiter->allow_apb();
