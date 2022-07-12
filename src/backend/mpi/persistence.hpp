@@ -93,6 +93,22 @@ namespace argo::backend::persistence {
 		 */
 		static bool inline is_user_self(lock_repr_type lock_field) { return is_user(lock_field, self()); }
 
+		/** @brief Determines whether the lock field encodes awaiting of a persist.
+		 * Defined even for a lock field in an initial state.
+		 * @param lock_field The lock field to inspect.
+		 * @return True if the lock field encodes awaiting of a persist.
+		 */
+		static bool inline is_awaiting_persist(lock_repr_type lock_field) { return (lock_field & awaiting_persist_bit) != 0; }
+
+		/** @brief Extracts the lock offset information in the lock_field.
+		 * Undefined for a lock field in an initial state.
+		 * @param lock_field The lock field to inspect.
+		 * @return The lock offset encoded in the lock field.
+		 */
+		static size_t inline get_lock_offset(lock_repr_type lock_field) {
+			return static_cast<size_t>((lock_field >> lock_shift) & lock_mask);
+		}
+
 
 		// Methods for creating lock fields with a specific state. Side-effect free
 
@@ -131,7 +147,19 @@ namespace argo::backend::persistence {
 		/** @brief Creates a lock field in an initial state.
 		 * @return A lock field in an initial state.
 		 */
-		static lock_repr_type inline make_init() { return init_bit; }
+		static constexpr lock_repr_type inline make_init() { return init_bit; }
+
+		/** @brief Creates a copy of the lock field that doesn't indicate awaiting persist.
+		 * @param field The lock field to copy.
+		 * @return A copy of @p field without awaiting persist set.
+		 */
+		static constexpr lock_repr_type inline clear_awaiting_persist(lock_repr_type field) { return field & ~awaiting_persist_bit; }
+
+		/** @brief Creates a copy of the lock field that does indicate awaiting persist.
+		 * @param field The lock field to copy.
+		 * @return A copy of @p field with awaiting persist set.
+		 */
+		static constexpr lock_repr_type inline set_awaiting_persist(lock_repr_type field) { return field | awaiting_persist_bit; }
 
 
 		// Methods for registering important lock events. May have side-effects.
