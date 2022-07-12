@@ -551,6 +551,12 @@ namespace argo::backend::persistence {
 			lock_var->lock();
 			persistence_registry.get_tracker()->prohibit_apb();
 		}
+		bool try_lock() {
+			persistence_registry.get_tracker()->allow_apb();
+			bool success = lock_var->try_lock();
+			persistence_registry.get_tracker()->prohibit_apb();
+			return success;
+		}
 		void unlock() {
 			persistence_registry.get_tracker()->allow_apb();
 			lock_var->unlock();
