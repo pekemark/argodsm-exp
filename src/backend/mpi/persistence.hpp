@@ -25,13 +25,12 @@ namespace argo::backend::persistence {
 	class lock_repr {
 	public:
 		/** @brief lock representation type this class supports
-		 * (msb) lpxxxxxi LLL GGG UUUU UUUU (lsb) (64 bit)
+		 * (msb) lpxx xxxi LL LLLL UUUU UUUU (lsb) (64 bit)
 		 * Lower case = 1 bit, upper case = 4 bit
 		 * l = locked
 		 * p = awaiting persist
 		 * i = initial state (other data invalid)
-		 * L = Lock offset
-		 * G = Group offset
+		 * L = Lock offset (mailbox)
 		 * U = User (Node ID)
 		 * x = reserved
 		 */
@@ -47,12 +46,8 @@ namespace argo::backend::persistence {
 		static const std::size_t user_shift = 0;
 		static const lock_repr_type user_mask = (1UL<<user_size) - 1;
 
-		static const std::size_t group_size = 12;
-		static const std::size_t group_shift = user_shift + user_size;
-		static const lock_repr_type group_mask = (1UL<<group_size) - 1;
-
-		static const std::size_t lock_size = 12;
-		static const std::size_t lock_shift = group_shift + group_size;
+		static const std::size_t lock_size = 24;
+		static const std::size_t lock_shift = user_shift + user_size;
 		static const lock_repr_type lock_mask = (1UL<<lock_size) - 1;
 
 
@@ -102,12 +97,11 @@ namespace argo::backend::persistence {
 		// Methods for creating lock fields with a specific state. Side-effect free
 
 		static lock_repr_type inline make_field() { return init_bit; }
-		static lock_repr_type inline make_field(bool locked, bool awaiting_persist, argo::node_id_t user, std::size_t group_idx, std::size_t lock_idx) {
+		static lock_repr_type inline make_field(bool locked, bool awaiting_persist, argo::node_id_t user, std::size_t lock_idx) {
 			lock_repr_type field = 0;
 			if (locked) field |= locked_bit;
 			if (awaiting_persist) field |= awaiting_persist_bit;
 			field |= (user & user_mask) << user_shift;
-			field |= (group_idx & group_mask) << group_shift;
 			field |= (lock_idx & lock_mask) << lock_shift;
 			return field;
 		}
@@ -116,7 +110,7 @@ namespace argo::backend::persistence {
 		 * @param node Node ID to encode as the user of the lock.
 		 * @return A lock field in an unlocked state, encoded with the specified user.
 		 */
-		static lock_repr_type inline make_locked(argo::node_id_t node) { return make_field(true, true, node, 0, 0); }
+		static lock_repr_type inline make_locked(argo::node_id_t node) { return make_field(true, true, node, 0); }
 
 		/** @brief Creates a lock field in a locked state.
 		 * @return A lock field in a locked state, encoded with the local node as the user.
@@ -127,7 +121,7 @@ namespace argo::backend::persistence {
 		 * @param node Node ID to encode as the user of the lock.
 		 * @return A lock field in an unlocked state, encoded with the specified user.
 		 */
-		static lock_repr_type inline make_unlocked(argo::node_id_t node) { return make_field(false, true, node, 0, 0); }
+		static lock_repr_type inline make_unlocked(argo::node_id_t node) { return make_field(false, true, node, 0); }
 
 		/** @brief Creates a lock field in an unlocked state.
 		 * @return A lock field in an unlocked state, encoded with the local node as the user.
