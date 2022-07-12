@@ -224,6 +224,9 @@ namespace argo::backend::persistence {
 
 	struct durable_log;
 
+	template<typename T>
+	class mpi_atomic_array;
+
 	class undo_log {
 
 		using location_t = argo::memory_t;

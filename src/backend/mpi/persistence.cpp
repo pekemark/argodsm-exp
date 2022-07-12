@@ -7,6 +7,10 @@
 #include <sys/mman.h>
 #include <unordered_map>
 
+#include <mpi.h>
+#include <semaphore.h>
+extern sem_t ibsem;
+
 #include "../../synchronization/intranode/ticket_lock.hpp"
 #include "../backend.hpp"
 #include "virtual_memory/virtual_memory.hpp"
@@ -274,6 +278,66 @@ namespace argo::backend::persistence {
 
 	struct durable_log {
 		durable_range group_range;
+	};
+
+	template<typename T>
+	class mpi_atomic_array {
+		static_assert(sizeof(T) == 4 || sizeof(T) == 8,
+			"The size of the datatype must be 4 or 8 bytes.");
+		const MPI_Datatype mpi_type = (sizeof(T) == 4 ? MPI_INT32_T : MPI_INT64_T);
+		T *base;
+		size_t elems;
+		MPI_Win array_window;
+	public:
+		mpi_atomic_array(T *base, size_t elems)
+		: base(base), elems(elems) {
+			MPI_Win_create(base, elems*sizeof(T), sizeof(T), MPI_INFO_NULL, MPI_COMM_WORLD, &array_window);
+		}
+		void store_public(T desired, argo::node_id_t rank, size_t idx) {
+			sem_wait(&ibsem);
+			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, rank, 0, array_window);
+			MPI_Put(&desired, 1, mpi_type, rank, idx, 1, mpi_type, array_window);
+			MPI_Win_unlock(rank, array_window);
+			sem_post(&ibsem);
+		}
+		void store_local(T desired, size_t idx) {
+			argo::node_id_t rank = backend::node_id();
+			// sem_wait(&ibsem);
+			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, rank, 0, array_window);
+			base[idx] = desired;
+			MPI_Win_unlock(rank, array_window);
+			// sem_post(&ibsem);
+		}
+		void store(T desired, argo::node_id_t rank, size_t idx) {
+			if (rank == backend::node_id())
+				store_local(desired, idx);
+			else
+				store_public(desired, rank, idx);
+		}
+		T load_public(argo::node_id_t rank, size_t idx) {
+			sem_wait(&ibsem);
+			MPI_Win_lock(MPI_LOCK_SHARED, rank, 0, array_window);
+			T ret;
+			MPI_Get(&ret, 1, mpi_type, rank, idx, 1, mpi_type, array_window);
+			MPI_Win_unlock(rank, array_window);
+			sem_post(&ibsem);
+			return ret;
+		}
+		T load_local(size_t idx) {
+			argo::node_id_t rank = backend::node_id();
+			// sem_wait(&ibsem);
+			MPI_Win_lock(MPI_LOCK_SHARED, rank, 0, array_window);
+			T ret = base[idx];
+			MPI_Win_unlock(rank, array_window);
+			// sem_post(&ibsem);
+			return ret;
+		}
+		T load(argo::node_id_t rank, size_t idx) {
+			if (rank == backend::node_id())
+				return load_local(idx);
+			else
+				return load_public(rank, idx);
+		}
 	};
 
 	template<typename T>
