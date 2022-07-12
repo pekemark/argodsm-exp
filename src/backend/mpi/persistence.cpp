@@ -176,6 +176,79 @@ namespace argo::backend::persistence {
 		location_t location;
 	};
 
+	template<typename T>
+	struct durable_list_node {
+		size_t next;
+		T data;
+	};
+
+	template<typename Key, typename T>
+	class list {
+		struct node {
+			size_t prev;
+			size_t next;
+			Key key;
+		};
+		size_t *const d_head;
+		durable_list_node<T> *const d_node;
+		const size_t num_nodes; // how many allocated nodes there are, also used as a null value.
+		std::unordered_map<Key, size_t> list_lookup;
+		std::unordered_map<size_t, node> ptr;
+		node edge; // next == head, prev == tail
+	public:
+		list(size_t *d_head, durable_list_node<T> *d_nodes, size_t num_nodes)
+		: d_head(d_head), d_node(d_nodes), num_nodes(num_nodes) {
+			*d_head = num_nodes;
+			edge.next = num_nodes;
+			edge.prev = num_nodes;
+		}
+		void push_front(Key key, size_t idx) {
+			if (!list_lookup.insert({key, idx}).second)
+				throw std::invalid_argument("key already exists in list.");
+			if (!ptr.insert({idx, {.prev = num_nodes, .next = edge.next, .key = key}}).second)
+				throw std::invalid_argument("idx already exists in list.");
+			d_node[idx].next = edge.next;
+			// PM FENCE
+			*d_head = idx;
+			// PM FENCE
+			edge.next = idx;
+			if (edge.prev == num_nodes) edge.prev = idx; // Set tail if list is empty
+		}
+		size_t front_idx() { return edge.next; }
+		T *front() { return &d_node[front_idx()].data; }
+		size_t next_idx(size_t idx) { return ptr.at(idx).next; }
+		bool is_end(size_t idx) { return idx == num_nodes; }
+		bool empty() { return is_end(front_idx()); }
+		void unlink_idx(size_t idx) {
+			// Find node to unlink
+			node &unode = ptr.at(idx);
+			// Persistenly unlink node
+			if (unode.prev == num_nodes) { // If head
+				*d_head = unode.next;
+				// PM FENCE
+			} else {
+				d_node[unode.prev].next = unode.next;
+				// PM FENCE
+			}
+			// Unlink in volatile list (double-ended)
+			if (unode.prev == num_nodes) edge.next = unode.next;
+			else           ptr.at(unode.prev).next = unode.next;
+			if (unode.next == num_nodes) edge.prev = unode.prev;
+			else           ptr.at(unode.next).prev = unode.prev;
+			// Remove volatile node
+			list_lookup.erase(unode.key);
+			ptr.erase(idx);
+			// Note: Durable node idx is intetionally not cleared nor returned to free pool.
+		}
+		void pop_front() {
+			if (empty()) return;
+			unlink_idx(edge.next);
+		}
+		bool contains(Key key) { return list_lookup.count(key) > 0; }
+		size_t lookup_idx(Key key) { return list_lookup.at(key); }
+		T *lookup(Key key) { return &d_node[list_lookup.at(key)].data; }
+	};
+
 	struct durable_group {
 		durable_range entry_range;
 		durable_range lock_range;

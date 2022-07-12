@@ -211,6 +211,12 @@ namespace argo::backend::persistence {
 	template<typename location_t>
 	struct durable_lock;
 
+	template<typename T>
+	struct durable_list_node;
+
+	template<typename Key, typename T>
+	class list;
+
 	struct durable_group;
 
 	template<typename location_t>
