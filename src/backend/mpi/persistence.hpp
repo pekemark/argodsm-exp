@@ -167,35 +167,31 @@ namespace argo::backend::persistence {
 		/** @brief Registers intention to lock on the specified lock field with retries until successful.
 		 * @param lock_field Pointer to the lock field to lock on.
 		 */
-		static void inline lock_initiate(lock_repr_type *lock_field) {}
+		static void lock_initiate(lock_repr_type *lock_field);
 
 		/** @brief Registers intention to lock on the specified lock field. This intent is allowed to fail.
 		 * @param lock_field Pointer to the lock field to lock on.
 		 * @param old_field The expected value of the lock field.
 		 * @return A locked lock field appropriate to become the new value of the targeted lock field.
 		 */
-		static lock_repr_type inline try_lock_initiate(lock_repr_type *lock_field, lock_repr_type old_field) {
-			return make_locked();
-		}
+		static lock_repr_type try_lock_initiate(lock_repr_type *lock_field, lock_repr_type old_field);
 
 		/** @brief Registers a successfull lock aquisition on the specified lock field.
 		 * This call should follow a call to @c try_lock_initiate with the same lock field.
 		 * @param lock_field Pointer to the lock field that has been locked.
 		 */
-		static void inline lock_success(lock_repr_type *lock_field) {}
+		static void lock_success(lock_repr_type *lock_field);
 
 		/** @brief Registers a failed lock aquisition on the specified lock field.
 		 * This call should follow a call to @c try_lock_initiate with the same lock field.
 		 * @param lock_field Pointer to the lock field that could not be locked.
 		 */
-		static void inline lock_fail(lock_repr_type *lock_field) {}
+		static void lock_fail(lock_repr_type *lock_field);
 
 		/** @brief Registers intent to unlock the specified lock field.
 		 * @return An unlocked lock field appropriate to become the new value of the targeted lock field.
 		 */
-		static lock_repr_type inline unlock(lock_repr_type *lock_field) {
-			return make_unlocked();
-		}
+		static lock_repr_type unlock(lock_repr_type *lock_field);
 	};
 
 	template<size_t entry_size>
@@ -249,7 +245,11 @@ namespace argo::backend::persistence {
 
 		durable_list_node<durable_lock<location_t>> *d_lock;
 		lock_repr::lock_repr_type *d_lock_mailbox; // TODO: Does this need to be persistent?
+		mpi_atomic_array<lock_repr::lock_repr_type> *mpi_mailbox;
 		std::deque<size_t> lock_free; // Indexes of unused locks
+		std::unordered_map<location_t, lock_repr::lock_repr_type> held_locks; // Contains info about currently held locks
+		std::unordered_map<location_t, size_t> retry_locks;
+		list<location_t, durable_lock<location_t>> *pending_locks;
 
 		durable_group *d_group;
 		range *group_range;
@@ -276,6 +276,13 @@ namespace argo::backend::persistence {
 
 		void record_original(location_t location, char *original_data);
 
+		size_t allocate_lock_node();
+		void deallocate_lock_node(size_t lock_node);
+		void init_lock_node(size_t lock_node, location_t addr, lock_repr::lock_repr_type old_data, lock_repr::lock_repr_type new_data);
+		template<typename Key, typename T>
+		void link_lock_node(size_t lock_node, Key key, list<Key, T> *lock_list);
+		void init_and_link_pending_lock_node(size_t lock_node, location_t addr, lock_repr::lock_repr_type old_data, lock_repr::lock_repr_type new_data);
+
 	public:
 
 		size_t initialize(size_t offset);
@@ -284,6 +291,31 @@ namespace argo::backend::persistence {
 
 		void freeze(); // Closes the open group
 		void commit(); // Closes the open group and blocks until all groups are committed
+
+		/** @brief Indicates intention to repeatedly attempt to acquire a lock until successful.
+		 * Marks necesary resources to be retained for reuse in case of lock failure.
+		 * @note Currently nothing?
+		 */
+		void lock_initiate(location_t addr);
+		/** @brief Indicates intention to attempt to acquire a lock, which may fail.
+		 * Logs the intended (atomic) change (CAS) to global memory.
+		 * On roll-back: if @p new_data is found at @p addr , it is replaced with @p old_data . Otherwise, the CAS failed.
+		 */
+		lock_repr::lock_repr_type try_lock_initiate(location_t addr, lock_repr::lock_repr_type old_data);
+		/** @brief Indicates a successful lock aquisition.
+		 * Takes necessary actions to mark the lock as acquired.
+		 * @note Nothing has to change in the log, but the mailbox should be sent.
+		 */
+		void lock_success(location_t addr);
+		// void inform_predecessor(lock_repr::lock_repr_type last_user); // Should be part of lock success
+		/** @brief Indicates a failed lock acquisition.
+		 * Removes or invalidates the log entry such that the lock can be entered in the log again.
+		 */
+		void lock_fail(location_t addr);
+		/** @brief Indicates intention to release a lock.
+		 * Assumes the lock has already been aquired and is known by the log.
+		 */
+		lock_repr::lock_repr_type unlock(location_t addr);
 
 	};
 

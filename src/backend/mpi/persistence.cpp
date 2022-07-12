@@ -23,6 +23,26 @@ argo::backend::persistence::thread_registry persistence_registry(&persistence_ar
 
 namespace argo::backend::persistence {
 
+	void lock_repr::lock_initiate(lock_repr_type *lock_field) {
+		persistence_log.lock_initiate(reinterpret_cast<argo::memory_t>(lock_field));
+	}
+
+	lock_repr::lock_repr_type lock_repr::try_lock_initiate(lock_repr_type *lock_field, lock_repr_type old_field) {
+		return persistence_log.try_lock_initiate(reinterpret_cast<argo::memory_t>(lock_field), old_field);
+	}
+
+	void lock_repr::lock_success(lock_repr_type *lock_field) {
+		persistence_log.lock_success(reinterpret_cast<argo::memory_t>(lock_field));
+	}
+
+	void lock_repr::lock_fail(lock_repr_type *lock_field) {
+		persistence_log.lock_fail(reinterpret_cast<argo::memory_t>(lock_field));
+	}
+
+	lock_repr::lock_repr_type lock_repr::unlock(lock_repr_type *lock_field) {
+		return persistence_log.unlock(reinterpret_cast<argo::memory_t>(lock_field));
+	}
+
 	template<typename T>
 	constexpr T div_ceil(T n, T d) { return (n-1)/d + 1; }
 
@@ -278,6 +298,9 @@ namespace argo::backend::persistence {
 
 	struct durable_log {
 		durable_range group_range;
+		size_t committing_group; // group currently being committed. Should be ignored if index is still in group range.
+		size_t lock_pending_head; // locks in progress
+		size_t lock_unlink; // lock being unlinked from lock_pending. May be duplicated in lock_pending or head of current group. Next pointer not valid.
 	};
 
 	template<typename T>
@@ -373,12 +396,56 @@ namespace argo::backend::persistence {
 	}
 
 	bool undo_log::try_commit_group() {
-		if (closed_groups.size() == 0) return false; // No closed group to commit
-		// TODO: Check precondition for committing is satisfied
-		// (Currently there are none)
+		if (closed_groups.size() == 0) { return false; } // No closed group to commit
 		group<location_t> *commit_group = closed_groups.front(); // Get pointer to group to commit
+		// Check precondition for committing is satisfied
+		// - Check that all locks has been persisted
+		for (size_t lock_idx = commit_group->lock_list.front_idx();
+			!(commit_group->lock_list.is_end(lock_idx));
+			lock_idx = commit_group->lock_list.next_idx(lock_idx)
+		) {
+			lock_repr::lock_repr_type mailbox_field = mpi_mailbox->load_local(lock_idx);
+			if (lock_repr::is_awaiting_persist(mailbox_field)) { // Set to awaiting persist when allocated, cleared when persisted
+				return false; // Still waiting for some persist, cannot commit
+			}
+		}
+		// Precondition met, start commit
+		size_t committing_group = group_range->get_start();
+		d_log->committing_group = committing_group;
+		// PM FENCE
+		// Mark as committed
 		closed_groups.pop_front(); // Remove the group from the volatile queue
 		group_range->inc_start(); // Durable commit of the group
+		// Message locks about commit
+		for (size_t lock_idx = commit_group->unlock_list.front_idx();
+			!(commit_group->unlock_list.is_end(lock_idx));
+			lock_idx = commit_group->unlock_list.next_idx(lock_idx)
+		) {
+			lock_repr::lock_repr_type expect_field = d_lock[lock_idx].data.new_field; // TODO: Reads from PM, eliminate?
+			lock_repr::lock_repr_type persist_field = lock_repr::clear_awaiting_persist(expect_field);
+			lock_repr::lock_repr_type mailbox_field = mpi_mailbox->load_local(lock_idx);
+			if (lock_repr::is_init(mailbox_field)) {
+				// No one has requested a persist notification, try to update global lock field
+				argo::data_distribution::global_ptr<lock_repr::lock_repr_type> global_lock_field(reinterpret_cast<lock_repr::lock_repr_type*>(d_lock[lock_idx].data.location)); // TODO: Very ugly, 1) reads from PM, 2) requires cast
+				if (backend::atomic::compare_exchange(global_lock_field, expect_field, persist_field, argo::atomic::memory_order::relaxed)) {
+					continue;
+				} else {
+					// Someone else has taken the lock but not yet requested a persist notification
+					// Wait for that node to inform this node
+					do { mailbox_field = mpi_mailbox->load_local(lock_idx); }
+					while (lock_repr::is_init(mailbox_field));
+				}
+			}
+			// Send something other than the init value (for example what we tried to CAS write)
+			// to the node and lock offset cound in the local mailbox once updated.
+			mpi_mailbox->store_public(
+				persist_field,
+				lock_repr::get_user(mailbox_field),
+				lock_repr::get_lock_offset(mailbox_field)
+			);
+		}
+		// Commit complete, clear committing group
+		d_log->committing_group = groups; // out-of-range - "null" value
 		// Now, free volatile references
 		// - Return entry slots (advance range start)
 		entry_range->inc_start(commit_group->entry_range.get_use());
@@ -397,6 +464,7 @@ namespace argo::backend::persistence {
 		}
 		// - Delete the commit group
 		delete commit_group;
+		// Report success
 		return true;
 	}
 
@@ -426,8 +494,12 @@ namespace argo::backend::persistence {
 		init_offset += durable_alloc(d_log, 1, init_offset);
 		// printf("d_log address: %p\n", d_log);
 		entry_range = new range(entries, 0, nullptr);
+		mpi_mailbox = new mpi_atomic_array<lock_repr::lock_repr_type>(d_lock_mailbox, locks);
 		for (size_t i = 0; i < locks; ++i)
 			lock_free.push_back(i);
+		pending_locks = new list<location_t, durable_lock<location_t>>(&d_log->lock_pending_head, d_lock, locks);
+		d_log->lock_unlink = locks; // out-of-range - "null" value
+		d_log->committing_group = groups; // out-of-range - "null" value
 		group_range = new range(groups, 0, &d_log->group_range);
 		current_group = nullptr; // No open group
 		log_lock = new locallock::ticket_lock();
@@ -523,6 +595,178 @@ namespace argo::backend::persistence {
 			close_group();
 		while (!closed_groups.empty())
 			commit_group();
+	}
+
+	size_t undo_log::allocate_lock_node() {
+		// Ensure available resources
+		ensure_available_lock();
+		// Allocate a lock node to use
+		size_t lock_node = lock_free.front();
+		lock_free.pop_front();
+		return lock_node;
+	}
+
+	void undo_log::deallocate_lock_node(size_t lock_node) {
+		lock_free.push_back(lock_node);
+	}
+
+	void undo_log::init_lock_node(
+		size_t lock_node,
+		location_t addr,
+		lock_repr::lock_repr_type old_data,
+		lock_repr::lock_repr_type new_data
+	) {
+		d_lock[lock_node].data.old_field = old_data;
+		d_lock[lock_node].data.new_field = new_data;
+		d_lock[lock_node].data.location = addr;
+		mpi_mailbox->store_local(lock_repr::set_awaiting_persist(lock_repr::make_init()), lock_node);
+	}
+
+	template<typename Key, typename T>
+	void undo_log::link_lock_node(
+		size_t lock_node,
+		Key key,
+		list<Key, T> *lock_list
+	) {
+		lock_list->push_front(key, lock_node);
+	}
+
+	void undo_log::init_and_link_pending_lock_node(
+		size_t lock_node,
+		location_t addr,
+		lock_repr::lock_repr_type old_data,
+		lock_repr::lock_repr_type new_data
+	) {
+		// Initialise durable lock node
+		init_lock_node(lock_node, addr, old_data, new_data);
+		// Link lock node to pending locks
+		link_lock_node(lock_node, addr, pending_locks);
+	}
+
+	void undo_log::lock_initiate(location_t addr) {
+		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
+		size_t lock_node = allocate_lock_node();
+		// Register lock node to be reused after failures
+		assert(("There is already an allocated lock for the address.", retry_locks.count(addr)==0));
+		retry_locks[addr] = lock_node;
+		// Initialise and link durable lock node
+		init_and_link_pending_lock_node(lock_node, addr, lock_repr::make_init(), lock_repr::make_init());
+		// Old and new are the same, so no change if new should match on recovery.
+	}
+
+	lock_repr::lock_repr_type undo_log::try_lock_initiate(
+		location_t addr,
+		lock_repr::lock_repr_type old_data
+	) {
+		std::unique_lock<locallock::ticket_lock> lock(*log_lock);
+		size_t lock_node;
+		try {
+			// Get already allocated lock
+			lock_node = retry_locks.at(addr);
+		} catch (std::out_of_range &e) {
+			lock_node = locks; // out-of-range - "null" value
+		}
+		lock_repr::lock_repr_type new_data;
+		if (lock_node < locks) { // Lock node found
+			// Construct new lock field
+			new_data = lock_repr::make_field(true, true, backend::node_id(), lock_node);
+			// Update lock node
+			d_lock[lock_node].data.new_field = new_data; // update new first as it shouldn't be possible for any other node to write this value.
+			// PM FENCE
+			d_lock[lock_node].data.old_field = old_data;
+			// PM FENCE
+			assert(("The address of the already allocatied lock node doesn't match.", d_lock[lock_node].data.location == addr));
+		} else { // No lock registered, this is a try-lock
+			lock_node = allocate_lock_node();
+			// Construct new lock field
+			new_data = lock_repr::make_field(true, true, backend::node_id(), lock_node);
+			// Persistently update lock data
+			init_and_link_pending_lock_node(lock_node, addr, old_data, new_data);
+		}
+		// Avoid dependence cycles
+		if (current_group != nullptr // No cycle possible if lock is placed in a new group
+			&& !current_group->unlock_list.empty() // No cycle possible if no locks has been released
+			// TODO: check that some lock has been acquired by another node (neet to double chek this makes sense) // No cycle possible if no released locks has been acquired
+		) {
+			// The current group already has already released a lock, the incomming acquire might constitute a cycle (if comming from a different node). Force a new group (trhrough APB).
+			// TODO: This could be skipped if the lock doesn't come from a different node (then there is no risk of a cycle)
+			//       if the lock comes from an earlier group, there is no problem
+			//       if the lock comes from the same group, but then the lock list must support multiple entries for the same address.
+			lock.unlock();
+			persistence_registry.get_tracker()->make_apb(); // TODO: forcing an apb may be considered an error, yet the apb is needed under certain circumstances
+			// lock.lock(); // retrurning next, no need to relock
+		}
+		return new_data;
+	}
+
+	void undo_log::lock_success(location_t addr) {
+		std::unique_lock<locallock::ticket_lock> lock(*log_lock);
+		// Ensure available resources
+		ensure_open_group();
+		// Attach the successful lock to the group's log list.
+		// - Find lock associated with addr
+		size_t unlink_idx = pending_locks->lookup_idx(addr);
+		// - Persistently keep track of the node being unlinked
+		d_log->lock_unlink = unlink_idx;
+		// PM FENCE
+		// - Point unlinked's prev's next to unlinked's next
+		pending_locks->unlink_idx(unlink_idx);
+		// - Point unlinked's next to group's head
+		// - Point group's head to unlinked
+		current_group->lock_list.push_front(addr, unlink_idx);
+		// - Clear unlink
+		d_log->lock_unlink = locks;
+		// PM FENCE
+		// Add lock addr & new_field to held_locks
+		held_locks.insert({addr, d_lock[unlink_idx].data.new_field}); // TODO: sub-optimal, shouldn't get new field from PM
+		// Request persist notification
+		// - If old_field indicates persisted, copy to mailbox
+		if (!lock_repr::is_awaiting_persist(d_lock[unlink_idx].data.old_field)) { // TODO: sub-optimal, shouldn't get old field from PM
+			mpi_mailbox->store_local(d_lock[unlink_idx].data.old_field, unlink_idx); // TODO: sub-optimal, shouldn't get old field from PM
+		}
+		// - Else, write new_field to the mailbox indicated in old_field
+		else {
+			argo::node_id_t prev_node = lock_repr::get_user(d_lock[unlink_idx].data.old_field); // TODO: sub-optimal, shouldn't get old field from PM
+			size_t prev_node_lock = lock_repr::get_lock_offset(d_lock[unlink_idx].data.old_field); // TODO: sub-optimal, shouldn't get old field from PM
+			mpi_mailbox->store_public(
+				d_lock[unlink_idx].data.new_field, // TODO: sub-optimal, shouldn't get new field from PM
+				prev_node,
+				prev_node_lock
+			);
+		}
+		// Remove from retry locks
+		retry_locks.erase(addr);
+	}
+
+	void undo_log::lock_fail(location_t addr) {
+		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
+		if (retry_locks.count(addr) == 0) {
+			// This was a try-lock and the program may do something else after the failure, remove the lock from pending locks.
+			size_t lock_node = pending_locks->lookup_idx(addr);
+			pending_locks->unlink_idx(lock_node);
+			deallocate_lock_node(lock_node);
+		}
+	}
+
+	lock_repr::lock_repr_type undo_log::unlock(location_t addr) {
+		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
+		// Get the old field (that should still be in global mem)
+		lock_repr::lock_repr_type old_field;
+		try {
+			old_field = held_locks.at(addr);
+		} catch (std::out_of_range &e) {
+			throw std::logic_error("The lock being unlocked is currently not being held.");
+		}
+		// Allocate a slot in the log
+		size_t lock_node = allocate_lock_node();
+		// Create the new field (unlocked but awaiting persist, signed by node and lock slot)
+		lock_repr::lock_repr_type new_field = lock_repr::make_field(false, true, backend::node_id(), lock_node);
+		// Initialise and link durable lock node
+		init_lock_node(lock_node, addr, old_field, new_field);
+		link_lock_node(lock_node, addr, &current_group->unlock_list);
+		// Remove from held_locks
+		held_locks.erase(addr);
+		return new_field;
 	}
 
 }
