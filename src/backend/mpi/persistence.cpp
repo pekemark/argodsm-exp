@@ -235,8 +235,9 @@ namespace argo::backend::persistence {
 			// PM FENCE
 			*d_head = idx;
 			// PM FENCE
-			edge.next = idx;
 			if (edge.prev == num_nodes) edge.prev = idx; // Set tail if list is empty
+			else           ptr.at(edge.next).prev = idx; // Otherwise, set prev of former head
+			edge.next = idx; // Update head
 		}
 		size_t front_idx() { return edge.next; }
 		T *front() { return &d_node[front_idx()].data; }
