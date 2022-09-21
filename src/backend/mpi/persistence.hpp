@@ -180,8 +180,10 @@ namespace argo::backend::persistence {
 		/** @brief Registers a successfull lock aquisition on the specified lock field.
 		 * This call should follow a call to @c try_lock_initiate with the same lock field.
 		 * @param lock_field Pointer to the lock field that has been locked.
+		 * @param old_field The old value of the lock field (that was supplied to @c try_lock_initiate ).
+		 * @param new_field The new value of the lock field (that was returned by @c try_lock_initiate ).
 		 */
-		static void lock_success(lock_repr_type *lock_field);
+		static void lock_success(lock_repr_type *lock_field, lock_repr_type old_field, lock_repr_type new_field);
 
 		/** @brief Registers a failed lock aquisition on the specified lock field.
 		 * This call should follow a call to @c try_lock_initiate with the same lock field.
@@ -313,7 +315,7 @@ namespace argo::backend::persistence {
 		 * Takes necessary actions to mark the lock as acquired.
 		 * @note Nothing has to change in the log, but the mailbox should be sent.
 		 */
-		void lock_success(location_t addr);
+		void lock_success(location_t addr, lock_repr::lock_repr_type old_data, lock_repr::lock_repr_type new_data);
 		// void inform_predecessor(lock_repr::lock_repr_type last_user); // Should be part of lock success
 		/** @brief Indicates a failed lock acquisition.
 		 * Removes or invalidates the log entry such that the lock can be entered in the log again.

@@ -31,8 +31,8 @@ namespace argo::backend::persistence {
 		return persistence_log.try_lock_initiate(reinterpret_cast<argo::memory_t>(lock_field), old_field);
 	}
 
-	void lock_repr::lock_success(lock_repr_type *lock_field) {
-		persistence_log.lock_success(reinterpret_cast<argo::memory_t>(lock_field));
+	void lock_repr::lock_success(lock_repr_type *lock_field, lock_repr_type old_field, lock_repr_type new_field) {
+		persistence_log.lock_success(reinterpret_cast<argo::memory_t>(lock_field), old_field, new_field);
 	}
 
 	void lock_repr::lock_fail(lock_repr_type *lock_field) {
@@ -745,11 +745,27 @@ namespace argo::backend::persistence {
 		return new_data;
 	}
 
-	void undo_log::lock_success(location_t addr) {
+	void undo_log::lock_success(
+		location_t addr,
+		lock_repr::lock_repr_type old_data,
+		lock_repr::lock_repr_type new_data
+	) {
+		// Request persist notification
+		// - If old_data indicates persisted, copy to mailbox
+		if (!lock_repr::is_awaiting_persist(old_data)) {
+			mpi_mailbox->store_local(old_data, lock_repr::get_lock_offset(new_data));
+		}
+		// - Else, write new_data to the mailbox indicated in old_data
+		else {
+			argo::node_id_t prev_node = lock_repr::get_user(old_data);
+			size_t prev_node_lock = lock_repr::get_lock_offset(old_data);
+			mpi_mailbox->store_public(new_data, prev_node, prev_node_lock);
+		}
+		// Start log updates
 		std::unique_lock<locallock::ticket_lock> lock(*log_lock);
 		// Ensure available resources
 		ensure_open_group();
-		// Attach the successful lock to the group's log list.
+		// Attach the successful lock to the group's lock list.
 		// - Find lock associated with addr
 		size_t unlink_idx = pending_locks->lookup_idx(addr);
 		// - Persistently keep track of the node being unlinked
@@ -765,21 +781,6 @@ namespace argo::backend::persistence {
 		// PM FENCE
 		// Add lock addr & new_field to held_locks
 		held_locks.insert({addr, d_lock[unlink_idx].data.new_field}); // TODO: sub-optimal, shouldn't get new field from PM
-		// Request persist notification
-		// - If old_field indicates persisted, copy to mailbox
-		if (!lock_repr::is_awaiting_persist(d_lock[unlink_idx].data.old_field)) { // TODO: sub-optimal, shouldn't get old field from PM
-			mpi_mailbox->store_local(d_lock[unlink_idx].data.old_field, unlink_idx); // TODO: sub-optimal, shouldn't get old field from PM
-		}
-		// - Else, write new_field to the mailbox indicated in old_field
-		else {
-			argo::node_id_t prev_node = lock_repr::get_user(d_lock[unlink_idx].data.old_field); // TODO: sub-optimal, shouldn't get old field from PM
-			size_t prev_node_lock = lock_repr::get_lock_offset(d_lock[unlink_idx].data.old_field); // TODO: sub-optimal, shouldn't get old field from PM
-			mpi_mailbox->store_public(
-				d_lock[unlink_idx].data.new_field, // TODO: sub-optimal, shouldn't get new field from PM
-				prev_node,
-				prev_node_lock
-			);
-		}
 		// Remove from retry locks
 		retry_locks.erase(addr);
 	}

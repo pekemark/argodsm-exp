@@ -119,9 +119,13 @@ namespace argo {
 						/** @brief Registers a successfull lock aquisition on the specified lock field.
 						 * This call should follow a call to @c try_lock_initiate with the same lock field.
 						 * @param lock_field Pointer to the lock field that has been locked.
+						 * @param old_field The old value of the lock field (that was supplied to @c try_lock_initiate ).
+						 * @param new_field The new value of the lock field (that was returned by @c try_lock_initiate ).
 						 */
-						static void inline lock_success(lock_repr_type *lock_field) {
+						static void inline lock_success(lock_repr_type *lock_field, lock_repr_type old_field, lock_repr_type new_field) {
 							(void)lock_field; // Intentionally unused
+							(void)old_field; // Intentionally unused
+							(void)new_field; // Intentionally unused
 						}
 
 						/** @brief Registers a failed lock aquisition on the specified lock field.
@@ -201,7 +205,7 @@ namespace argo {
 					auto new_field = lock_repr::try_lock_initiate(lock_field.get(), old_field);
 					bool success = backend::atomic::compare_exchange(lock_field, old_field, new_field, atomic::memory_order::relaxed);
 					if (success) {
-						lock_repr::lock_success(lock_field.get());
+						lock_repr::lock_success(lock_field.get(), old_field, new_field);
 						if (lock_repr::is_user_self(old_field) || lock_repr::is_init(old_field)) {
 							// The lock was not previously held by another node.
 							/* note: doing nothing here is only safe because we are using
