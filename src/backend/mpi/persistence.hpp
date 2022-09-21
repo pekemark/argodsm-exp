@@ -519,9 +519,10 @@ namespace argo::backend::persistence {
 			 */
 			void prohibit_apb() {
 				arbiter->log->flush();
-				if (!prohibiting)
+				if (!prohibiting) {
 					arbiter->handle_apb_request();
 					arbiter->prohibit_apb();
+				}
 				prohibiting = true;
 			}
 
@@ -530,7 +531,7 @@ namespace argo::backend::persistence {
 			 */
 			void join_apb() {
 				arbiter->log->flush();
-				if (prohibiting)
+				if (prohibiting) {
 					if (arbiter->apb_requested) {
 						arbiter->allow_apb();
 						arbiter->handle_apb_request();
@@ -538,7 +539,7 @@ namespace argo::backend::persistence {
 					} else {
 						arbiter->join_apb();
 					}
-				else {
+				} else {
 					arbiter->handle_apb_request();
 				}
 				// The tracker will remain prohibiting afterwards.
