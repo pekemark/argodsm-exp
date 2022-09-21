@@ -368,7 +368,7 @@ namespace argo::backend::persistence {
 		size_t size = align_ceil(copies*sizeof(T), alignment);
 		addr = reinterpret_cast<T*>(argo::virtual_memory::allocate_mappable(entry_size, size));
 		argo::virtual_memory::map_memory(addr, size, offset, PROT_READ|PROT_WRITE, argo::virtual_memory::memory_type::nvm);
-		memset(addr, 0, size);
+		memset((void*)addr, 0, size);
 		return size;
 	}
 
@@ -581,7 +581,7 @@ namespace argo::backend::persistence {
 	}
 
 	void undo_log::record_original(location_t location, char *original_data) {
-		assert(("The location shouldn't be in the open group.",
+		assert(((void)"The location shouldn't be in the open group.",
 			current_group == nullptr || current_group->entry_lookup.count(location) == 0));
 		// Close group if exceedign limits (TODO: temporary solution, closing a group will require an APB)
 		if (current_group != nullptr && current_group->entry_lookup.size() >= group_size_limit) {
@@ -593,7 +593,7 @@ namespace argo::backend::persistence {
 		ensure_open_group();
 		// Get next free entry index (at least one free slot has been ensured)
 		size_t idx = entry_range->get_end();
-		assert(("The end of the global entry range should match that of the current group.",
+		assert(((void)"The end of the global entry range should match that of the current group.",
 			idx == current_group->entry_range.get_end()));
 		// Persistently update group data
 		d_original[idx].copy_data(original_data);
@@ -692,7 +692,7 @@ namespace argo::backend::persistence {
 		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
 		size_t lock_node = allocate_lock_node();
 		// Register lock node to be reused after failures
-		assert(("There is already an allocated lock for the address.", retry_locks.count(addr)==0));
+		assert(((void)"There is already an allocated lock for the address.", retry_locks.count(addr)==0));
 		retry_locks[addr] = lock_node;
 		// Initialise and link durable lock node
 		init_and_link_pending_lock_node(lock_node, addr, lock_repr::make_init(), lock_repr::make_init());
@@ -720,7 +720,7 @@ namespace argo::backend::persistence {
 			// PM FENCE
 			d_lock[lock_node].data.old_field = old_data;
 			// PM FENCE
-			assert(("The address of the already allocatied lock node doesn't match.", d_lock[lock_node].data.location == addr));
+			assert(((void)"The address of the already allocatied lock node doesn't match.", d_lock[lock_node].data.location == addr));
 		} else { // No lock registered, this is a try-lock
 			lock_node = allocate_lock_node();
 			// Construct new lock field

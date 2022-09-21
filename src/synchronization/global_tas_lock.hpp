@@ -101,7 +101,9 @@ namespace argo {
 						/** @brief Registers intention to lock on the specified lock field with retries until successful.
 						 * @param lock_field Pointer to the lock field to lock on.
 						 */
-						static void inline lock_initiate(lock_repr_type *lock_field) {}
+						static void inline lock_initiate(lock_repr_type *lock_field) {
+							(void)lock_field; // Intentionally unused
+						}
 
 						/** @brief Registers intention to lock on the specified lock field. This intent is allowed to fail.
 						 * @param lock_field Pointer to the lock field to lock on.
@@ -109,6 +111,8 @@ namespace argo {
 						 * @return A locked lock field appropriate to become the new value of the targeted lock field.
 						 */
 						static lock_repr_type inline try_lock_initiate(lock_repr_type *lock_field, lock_repr_type old_field) {
+							(void)lock_field; // Intentionally unused
+							(void)old_field; // Intentionally unused
 							return make_locked();
 						}
 
@@ -116,18 +120,23 @@ namespace argo {
 						 * This call should follow a call to @c try_lock_initiate with the same lock field.
 						 * @param lock_field Pointer to the lock field that has been locked.
 						 */
-						static void inline lock_success(lock_repr_type *lock_field) {}
+						static void inline lock_success(lock_repr_type *lock_field) {
+							(void)lock_field; // Intentionally unused
+						}
 
 						/** @brief Registers a failed lock aquisition on the specified lock field.
 						 * This call should follow a call to @c try_lock_initiate with the same lock field.
 						 * @param lock_field Pointer to the lock field that could not be locked.
 						 */
-						static void inline lock_fail(lock_repr_type *lock_field) {}
+						static void inline lock_fail(lock_repr_type *lock_field) {
+							(void)lock_field; // Intentionally unused
+						}
 
 						/** @brief Registers intent to unlock the specified lock field.
 						 * @return An unlocked lock field appropriate to become the new value of the targeted lock field.
 						 */
 						static lock_repr_type inline unlock(lock_repr_type *lock_field) {
+							(void)lock_field; // Intentionally unused
 							return make_unlocked();
 						}
 				};
@@ -188,7 +197,7 @@ namespace argo {
 				bool try_lock() {
 					auto old_field = backend::atomic::load(lock_field, atomic::memory_order::relaxed);
 					if (lock_repr::is_locked(old_field)) return false;
-					argo::node_id_t self = backend::node_id();
+					// argo::node_id_t self = backend::node_id(); // Unused, can be removed
 					auto new_field = lock_repr::try_lock_initiate(lock_field.get(), old_field);
 					bool success = backend::atomic::compare_exchange(lock_field, old_field, new_field, atomic::memory_order::relaxed);
 					if (success) {

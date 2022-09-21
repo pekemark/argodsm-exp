@@ -593,7 +593,7 @@ namespace argo::backend::persistence {
 		void register_thread() {
 			std::lock_guard<locallock::ticket_lock> lock(registry_lock);
 			pthread_t tid = pthread_self();
-			assert(("Thread is already registered.", reg.count(tid) == 0));
+			assert(((void)"Thread is already registered.", reg.count(tid) == 0));
 			reg[tid] = arbiter->create_tracker();
 		}
 
@@ -603,7 +603,7 @@ namespace argo::backend::persistence {
 		apb_arbiter::tracker *get_tracker() {
 			std::lock_guard<locallock::ticket_lock> lock(registry_lock);
 			pthread_t tid = pthread_self();
-			assert(("Thread is not registered.", reg.count(tid) != 0));
+			assert(((void)"Thread is not registered.", reg.count(tid) != 0));
 			return reg.at(tid);
 		}
 
@@ -611,7 +611,7 @@ namespace argo::backend::persistence {
 		void unregister_thread() {
 			std::lock_guard<locallock::ticket_lock> lock(registry_lock);
 			pthread_t tid = pthread_self();
-			assert(("Thread is not registered.", reg.count(tid) != 0));
+			assert(((void)"Thread is not registered.", reg.count(tid) != 0));
 			delete reg.at(tid);
 			reg.erase(tid);
 		}

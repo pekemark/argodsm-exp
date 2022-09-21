@@ -354,6 +354,8 @@ void handler(int sig, siginfo_t *si, void *unused){
 		pthread_mutex_unlock(&cachemutex);
 		return;
 	}
+	#else
+	UNUSED_PARAM(offset);
 	#endif
 
 	state  = cacheControl[startIndex].state;
