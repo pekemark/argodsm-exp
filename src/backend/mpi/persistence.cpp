@@ -39,8 +39,12 @@ namespace argo::backend::persistence {
 		persistence_log.lock_fail(reinterpret_cast<argo::memory_t>(lock_field));
 	}
 
-	lock_repr::lock_repr_type lock_repr::unlock(lock_repr_type *lock_field) {
-		return persistence_log.unlock(reinterpret_cast<argo::memory_t>(lock_field));
+	lock_repr::lock_repr_type lock_repr::unlock_initiate(lock_repr_type *lock_field) {
+		return persistence_log.unlock_initiate(reinterpret_cast<argo::memory_t>(lock_field));
+	}
+
+	void lock_repr::unlock_success(lock_repr_type *lock_field) {
+		persistence_log.unlock_success(reinterpret_cast<argo::memory_t>(lock_field));
 	}
 
 	template<typename T>
@@ -302,6 +306,8 @@ namespace argo::backend::persistence {
 		size_t committing_group; // group currently being committed. Should be ignored if index is still in group range.
 		size_t lock_pending_head; // locks in progress
 		size_t lock_unlink; // lock being unlinked from lock_pending. May be duplicated in lock_pending or head of current group. Next pointer not valid.
+		size_t unlock_pending_head; // unlocks in progress
+		size_t unlock_unlink; // unlock being unlinked from unlock_pending. May be duplicated in unlock_pending or head of current group. Next pointer not valid.
 	};
 
 	template<typename T>
@@ -538,7 +544,9 @@ namespace argo::backend::persistence {
 		for (size_t i = 0; i < locks; ++i)
 			lock_free.push_back(i);
 		pending_locks = new list<location_t, durable_lock<location_t>>(&d_log->lock_pending_head, d_lock, locks);
+		pending_unlocks = new list<location_t, durable_lock<location_t>>(&d_log->unlock_pending_head, d_lock, locks);
 		d_log->lock_unlink = locks; // out-of-range - "null" value
+		d_log->unlock_unlink = locks; // out-of-range - "null" value
 		d_log->committing_group = groups; // out-of-range - "null" value
 		group_range = new range(groups, 0, &d_log->group_range);
 		current_group = nullptr; // No open group
@@ -795,7 +803,7 @@ namespace argo::backend::persistence {
 		}
 	}
 
-	lock_repr::lock_repr_type undo_log::unlock(location_t addr) {
+	lock_repr::lock_repr_type undo_log::unlock_initiate(location_t addr) {
 		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
 		// Get the old field (that should still be in global mem)
 		lock_repr::lock_repr_type old_field;
@@ -810,10 +818,67 @@ namespace argo::backend::persistence {
 		lock_repr::lock_repr_type new_field = lock_repr::make_field(false, true, backend::node_id(), lock_node);
 		// Initialise and link durable lock node
 		init_lock_node(lock_node, addr, old_field, new_field);
-		link_lock_node(lock_node, addr, &current_group->unlock_list);
+		link_lock_node(lock_node, addr, pending_unlocks);
 		// Remove from held_locks
 		held_locks.erase(addr);
 		return new_field;
+	}
+
+	void undo_log::unlock_success(location_t addr) {
+		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
+		// Attach the successful unlock to the group's unlock list.
+		// - Find unlock associated with addr
+		size_t unlink_idx = pending_unlocks->lookup_idx(addr);
+		// - Persistently keep track of the node being unlinked
+		d_log->unlock_unlink = unlink_idx;
+		// PM FENCE
+		// - Point unlinked's prev's next to unlinked's next
+		pending_unlocks->unlink_idx(unlink_idx);
+		// - Point unlinked's next to group's head
+		// - Point group's head to unlinked
+		if (current_group != nullptr) {
+			// Current group is valid, attach the unlock to it.
+			link_lock_node(unlink_idx, addr, &current_group->unlock_list);
+		} else if (!closed_groups.empty()) {
+			// If the most recent group is closed, but not yet committed,
+			// the unlock can be attached to that most recently closed group.
+			// This is equivalent to opening a new group, attaching the unlock
+			// to it and immediately close it again.
+			link_lock_node(unlink_idx, addr, &(closed_groups.back()->unlock_list));
+		} else {
+			// If, additionally, all closed groups have been committed,
+			// open a new group, attach the unlock, and (optionally)
+			// close (and commit the group).
+			// Note: The commit must, however, wait until after the unlock
+			//   has been effected. Otherwise, the commit could proceed first
+			//   and stall or deadlock (as persisting to homenode fails)
+			//   until the lock is actually taken by another node and that node
+			//   informs the locking node of that.
+			// TODO: Bug?: There may be a race condition in that once the log
+			//   lock is released, the group with the unlock could be committed
+			//   before the unlock is effected. It is not likely to be
+			//   triggered often, but to be entirely sure, the unlock must
+			//   complete before the commit by either using init/finalise phases
+			//   or performing the unlock within the log function,
+			//   perhaps with a lambda expression?
+			// TODO: Additional note: I have observed the above bug,
+			//   it requires a fix.
+			//   The persist to homenode failed because the global lock field
+			//   still had the locked value instead of the unlocked
+			//   (but awaiting persist) value.
+			// TODO: Resolution: This bug is now fixed by splitting the unlock
+			//   into two phases. The reason for having two phases should be
+			//   documented, though.
+			// TODO: Note: A plausible shortcut would be to simply change the
+			//   new field and unlock without indicating awaiting persist.
+			//   But, it is unclear if this can cause other issues.
+			ensure_open_group();
+			link_lock_node(unlink_idx, addr, &current_group->unlock_list);
+			// close_group(); // Optional
+		}
+		// - Clear unlink
+		d_log->unlock_unlink = locks;
+		// PM FENCE
 	}
 
 }

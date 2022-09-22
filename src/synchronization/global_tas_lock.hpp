@@ -139,9 +139,17 @@ namespace argo {
 						/** @brief Registers intent to unlock the specified lock field.
 						 * @return An unlocked lock field appropriate to become the new value of the targeted lock field.
 						 */
-						static lock_repr_type inline unlock(lock_repr_type *lock_field) {
+						static lock_repr_type inline unlock_initiate(lock_repr_type *lock_field) {
 							(void)lock_field; // Intentionally unused
 							return make_unlocked();
+						}
+
+						/** @brief Registers a successfull lock release on the specified lock field.
+						 * This call should follow a call to @c unlock_initiate with the same lock field.
+						 * @param lock_field Pointer to the lock field that has been locked.
+						 */
+						static void inline unlock_success(lock_repr_type *lock_field) {
+							(void)lock_field; // Intentionally unused
 						}
 				};
 
@@ -258,8 +266,9 @@ namespace argo {
 				 */
 				void unlock() {
 					backend::release();
-					auto new_field = lock_repr::unlock(lock_field.get());
+					auto new_field = lock_repr::unlock_initiate(lock_field.get());
 					backend::atomic::store(lock_field, new_field);
+					lock_repr::unlock_success(lock_field.get());
 				}
 
 				/**

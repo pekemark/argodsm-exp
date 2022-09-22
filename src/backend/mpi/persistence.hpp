@@ -194,7 +194,13 @@ namespace argo::backend::persistence {
 		/** @brief Registers intent to unlock the specified lock field.
 		 * @return An unlocked lock field appropriate to become the new value of the targeted lock field.
 		 */
-		static lock_repr_type unlock(lock_repr_type *lock_field);
+		static lock_repr_type unlock_initiate(lock_repr_type *lock_field);
+
+		/** @brief Registers a successfull lock release on the specified lock field.
+		 * This call should follow a call to @c unlock_initiate with the same lock field.
+		 * @param lock_field Pointer to the lock field that has been locked.
+		 */
+		static void unlock_success(lock_repr_type *lock_field);
 	};
 
 	template<size_t entry_size>
@@ -255,6 +261,7 @@ namespace argo::backend::persistence {
 		std::unordered_map<location_t, lock_repr::lock_repr_type> held_locks; // Contains info about currently held locks
 		std::unordered_map<location_t, size_t> retry_locks;
 		list<location_t, durable_lock<location_t>> *pending_locks;
+		list<location_t, durable_lock<location_t>> *pending_unlocks;
 
 		durable_group *d_group;
 		range *group_range;
@@ -324,7 +331,11 @@ namespace argo::backend::persistence {
 		/** @brief Indicates intention to release a lock.
 		 * Assumes the lock has already been aquired and is known by the log.
 		 */
-		lock_repr::lock_repr_type unlock(location_t addr);
+		lock_repr::lock_repr_type unlock_initiate(location_t addr);
+		/** @brief Indicates a successful lock release.
+		 * Should be called once the new lock field has been stored in global memory.
+		 */
+		void unlock_success(location_t addr);
 
 	};
 
