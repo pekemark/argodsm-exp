@@ -685,18 +685,6 @@ namespace argo::backend::persistence {
 		lock_list->push_front(key, lock_node);
 	}
 
-	void undo_log::init_and_link_pending_lock_node(
-		size_t lock_node,
-		location_t addr,
-		lock_repr::lock_repr_type old_data,
-		lock_repr::lock_repr_type new_data
-	) {
-		// Initialise durable lock node
-		init_lock_node(lock_node, addr, old_data, new_data);
-		// Link lock node to pending locks
-		link_lock_node(lock_node, addr, pending_locks);
-	}
-
 	void undo_log::lock_initiate(location_t addr) {
 		std::lock_guard<locallock::ticket_lock> lock(*log_lock);
 		size_t lock_node = allocate_lock_node();
@@ -704,7 +692,8 @@ namespace argo::backend::persistence {
 		assert(((void)"There is already an allocated lock for the address.", retry_locks.count(addr)==0));
 		retry_locks[addr] = lock_node;
 		// Initialise and link durable lock node
-		init_and_link_pending_lock_node(lock_node, addr, lock_repr::make_init(), lock_repr::make_init());
+		init_lock_node(lock_node, addr, lock_repr::make_init(), lock_repr::make_init());
+		link_lock_node(lock_node, addr, pending_locks);
 		// Old and new are the same, so no change if new should match on recovery.
 	}
 
@@ -735,7 +724,8 @@ namespace argo::backend::persistence {
 			// Construct new lock field
 			new_data = lock_repr::make_field(true, true, backend::node_id(), lock_node);
 			// Persistently update lock data
-			init_and_link_pending_lock_node(lock_node, addr, old_data, new_data);
+			init_lock_node(lock_node, addr, old_data, new_data);
+			link_lock_node(lock_node, addr, pending_locks);
 		}
 		// Avoid dependence cycles
 		if (current_group != nullptr // No cycle possible if lock is placed in a new group

@@ -296,7 +296,6 @@ namespace argo::backend::persistence {
 		void init_lock_node(size_t lock_node, location_t addr, lock_repr::lock_repr_type old_data, lock_repr::lock_repr_type new_data);
 		template<typename Key, typename T>
 		void link_lock_node(size_t lock_node, Key key, list<Key, T> *lock_list);
-		void init_and_link_pending_lock_node(size_t lock_node, location_t addr, lock_repr::lock_repr_type old_data, lock_repr::lock_repr_type new_data);
 
 	public:
 
