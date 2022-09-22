@@ -510,7 +510,10 @@ namespace argo::backend::persistence {
 
 		public:
 
-			~tracker() { allow_apb(); }
+			~tracker() {
+				allow_apb();
+				make_apb();
+			}
 
 			/** @brief Wether the tracker is prohibiting.
 			 * @return Wether the tracker is prohibiting.
