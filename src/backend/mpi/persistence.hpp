@@ -251,6 +251,7 @@ namespace argo::backend::persistence {
 
 		durable_original<entry_size> *d_original;
 		durable_change<entry_size, dirty_unit> *d_change;
+		durable_change<entry_size, dirty_unit> *v_change;
 		location_t *d_location;
 		range *entry_range;
 
@@ -289,7 +290,7 @@ namespace argo::backend::persistence {
 		void ensure_available_group();
 		void ensure_open_group();
 
-		void record_original(location_t location, char *original_data);
+		void create_entry(location_t location);
 
 		size_t allocate_lock_node();
 		void deallocate_lock_node(size_t lock_node);

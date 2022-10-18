@@ -100,22 +100,53 @@ namespace argo::backend::persistence {
 			map.reset();
 		}
 
-		/** @brief Compare @p modified and @p original and set corresponding dirty bits.
+		/** @brief Copy dirty bits from specified change. */
+		void apply(durable_change<entry_size, dirty_unit> &other) {
+			map = other.map;
+		}
+
+		/** @brief Compare @p modified_data and @p original_data and set corresponding dirty bits.
+		 * If @p log_data is provided (i.e., is not @c nullptr ), copy original DRF units transitioning to dirty to the @p log_data .
+		 * If @p order_updates is @c true , a persistence fence is placed between
+		 * updating the DRF unit in the @p log_data and setting corresponding dirty bit.
+		 * Ordering updates is only necessary when both @p log_data and this @c durable_change object is in PM.
 		 * @param modified_data Pointer to modified data (e.g. in the ArgoDSM cache).
 		 * @param original_data Pointer to original data (e.g. in the ArgoDSM write buffer).
+		 * @param log_data Pointer to the logs original data (presumed to be in PM).
+		 * @param order_updated Wether to strictly order persistent updates to log data and this change map.
 		 * @note Avoid using data in the persistent log for the original. This is mainly for performance but may also affect correctness.
 		 */
-		void update(char *modified_data, char *original_data) {
+		void update(char *modified_data, char *original_data, char *log_data = nullptr, bool order_updates = false) {
 			for (size_t map_index = 0; map_index < map.size(); ++map_index) {
-				const size_t data_start = map_index * dirty_unit;
-				for (size_t dirty_index = 0; dirty_index < dirty_unit ; ++dirty_index) {
-					const size_t data_index = data_start + dirty_index;
-					if (original_data[data_index] != modified_data[data_index]) {
-						map.set(map_index); // The dirty unit has changed.
-						break;
+				if (!map[map_index]) { // If the dirty bit is already set, there will be no change.
+					const size_t data_start = map_index * dirty_unit;
+					bool is_dirty = false;
+					for (size_t dirty_index = 0; dirty_index < dirty_unit ; ++dirty_index) {
+						const size_t data_index = data_start + dirty_index;
+						if (original_data[data_index] != modified_data[data_index]) {
+							// map.set(map_index); // The dirty unit has changed. // Moved to be performed later.
+							is_dirty = true; // The dirty unit has changed.
+							break; // No need to check the rest of the dirty unit.
+						}
+					}
+					if (is_dirty) {
+						if (log_data != nullptr) {
+							for (size_t dirty_index = 0; dirty_index < dirty_unit ; ++dirty_index) {
+								const size_t data_index = data_start + dirty_index;
+								log_data[data_index] = original_data[data_index]; // Copy the original of changed dirty unit to log.
+							}
+							if (order_updates) {
+								// TODO: PM fence
+							}
+						}
+						map.set(map_index); // Change the dirty unit.
 					}
 				}
 			}
+		}
+
+		void update(char *modified_data, char *original_data, durable_original<entry_size> &d_log_original, bool order_updates = false) {
+			update(modified_data, original_data, &d_log_original.data[0], order_updates);
 		}
 
 	};
@@ -539,6 +570,7 @@ namespace argo::backend::persistence {
 		// printf("d_group address: %p\n", d_group);
 		init_offset += durable_alloc(d_log, 1, init_offset);
 		// printf("d_log address: %p\n", d_log);
+		v_change = new durable_change<entry_size, dirty_unit>[entries];
 		entry_range = new range(entries, 0, nullptr);
 		mpi_mailbox = new mpi_atomic_array<lock_repr::lock_repr_type>(d_lock_mailbox, locks);
 		for (size_t i = 0; i < locks; ++i)
@@ -589,7 +621,7 @@ namespace argo::backend::persistence {
 		}
 	}
 
-	void undo_log::record_original(location_t location, char *original_data) {
+	void undo_log::create_entry(location_t location) {
 		assert(((void)"The location shouldn't be in the open group.",
 			current_group == nullptr || current_group->entry_lookup.count(location) == 0));
 		// Close group if exceedign limits (TODO: temporary solution, closing a group will require an APB)
@@ -605,8 +637,9 @@ namespace argo::backend::persistence {
 		assert(((void)"The end of the global entry range should match that of the current group.",
 			idx == current_group->entry_range.get_end()));
 		// Persistently update group data
-		d_original[idx].copy_data(original_data);
-		d_change[idx].reset();
+		// d_original[idx].copy_data(original_data); // CANNOT do this, data race for bytes that are not locked by node. Optionaly, reset to zero instead.
+		v_change[idx].reset();
+		d_change[idx].apply(v_change[idx]);
 		d_location[idx] = location;
 		// PM FENCE
 		// Persistently expand group to include new data
@@ -625,10 +658,12 @@ namespace argo::backend::persistence {
 			idx = current_group->entry_lookup.at(location);
 		} catch (std::out_of_range &e) {
 			// Either due to lack of current group or the entry is new.
-			record_original(location, original_data);
+			create_entry(location);
 			idx = current_group->entry_lookup.at(location);
 		}
-		d_change[idx].update(modified_data, original_data);
+		v_change[idx].update(modified_data, original_data, d_original[idx]);
+		// TODO: PM fence // To separate updates to d_original from updates to d_change
+		d_change[idx].apply(v_change[idx]);
 	}
 
 	void undo_log::freeze() {
